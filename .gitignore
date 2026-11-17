@@ -33,3 +33,10 @@ decompiled/
 .idea/
 .vscode/
 *.log
+
+# 伏せ字の対応表（実名を含む。example だけコミットする）
+tools/capture/redact_map.json
+
+# Python
+__pycache__/
+*.pyc

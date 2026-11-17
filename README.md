@@ -4,11 +4,14 @@ setlog のログを PC やタブレットのブラウザで見返す、自分専
 
 - 設計書：[docs/design.md](docs/design.md)
 - API 解析メモ：[docs/api.md](docs/api.md)
+- 静的解析レポート：[docs/static-analysis.md](docs/static-analysis.md)
+- 動的解析ランブック：[docs/dynamic-analysis.md](docs/dynamic-analysis.md)
 - フィクスチャと伏せ字ルール：[fixtures/README.md](fixtures/README.md)
+- キャプチャツール：[tools/capture/](tools/capture/)
 
 ## 現在のフェーズ
 
-フェーズ0（API 解析）。`docs/api.md` に 6 操作分の仕様が揃い、方式 A / A′ / C が決まるまで UI には手をつけない。
+フェーズ0（API 解析）。静的解析（jadx）は完了。次は[動的解析ランブック](docs/dynamic-analysis.md)に沿って実通信をキャプチャし、`docs/api.md` の「状態＝静的」を実測で確定させる。6 操作分の仕様が揃い、方式 A / A′ / C が確定するまで UI には手をつけない。
 
 ## ディレクトリ
 
