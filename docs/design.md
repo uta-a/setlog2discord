@@ -46,12 +46,14 @@ setlog のログ（毎時2秒の動画）を、PC やタブレットのブラウ
 
 MVP は A（使えなければ A′）で作り、フェーズ2 で B を重ねる。
 
+> **解析結果（2026-11-18、静的解析）**：採用は **A＋A′ のハイブリッド**に確定見込み。メタデータ（グループ・カレンダー・日別投稿）は方式 A（BFF 中継）で取れるが、**動画は X25519＋ChaCha20-Poly1305 の E2EE で、復号鍵が端末の AndroidKeyStore に固定（エクスポート不可）**のため方式 A では取得できず、A′（cutlog が端末で復号して BFF にアップロード）が必須。方式 C（Web SDK 直接）は不可（Firebase は FCM 専用、データは独自 REST）。詳細は [api.md](api.md) と [static-analysis.md](static-analysis.md)。動的解析で最終確定する。
+
 ## 4. API 解析計画
 
 最初に「バックエンドが何か」を確定させる。ここで方式 A（BFF 中継）か C（Web SDK 直接）かが決まる。
 
 1. **静的解析**：jadx で APK を開き、ベース URL、Retrofit/OkHttp のインターフェース、`google-services.json` 由来の Firebase 設定、Supabase 等の URL を探す
-2. **動的解析**：HTTP Toolkit か mitmproxy で通信をキャプチャ。SSL pinning は cutlog の Morphe パッチで解除する（line-patch と同じ手順）
+2. **動的解析**：HTTP Toolkit か mitmproxy で通信をキャプチャ。SSL pinning は cutlog の Morphe パッチで解除する（line-patch と同じ手順）。**解析結果（2026-11-18）：SSL pinning（CertificatePinner）は無い。ただし `network_security_config.xml` がユーザー CA を信頼しないため、覗くにはピンニング解除だけでは足りず、同ファイルに `<certificates src="user"/>` を追加するパッチが必要。**
 3. **操作ごとに記録**：ログイン / トークン更新 / グループ一覧 / 日付ごとの投稿 / カレンダー / 動画取得をアプリで操作し、リクエストとレスポンスを保存する
 4. **必須ヘッダーの特定**：Authorization、User-Agent、アプリバージョン、端末 ID、署名系ヘッダーを一つずつ外して、何がないと弾かれるかを確かめる
 5. **API 仕様書化**：結果を `docs/api.md` と TypeScript 型（zod スキーマ）にまとめる。実レスポンスはテスト用フィクスチャとして保存
@@ -70,14 +72,19 @@ setlog のトークンは BFF だけが持ち、ブラウザには渡さない�
 
 **トークンの入手（優先順）**
 
-1. ログイン API を BFF で再現できる場合：管理画面から一度ログインし、アクセストークンとリフレッシュトークンを取得
+1. ログイン API を BFF で再現できる場合：管理画面からメール OTP でログインし、`user.token` を取得
 2. SMS 認証や端末紐付けで再現できない場合：cutlog の Morphe パッチに「トークンを BFF に送る」ボタンを足し、`POST /api/admin/token` で登録（管理用の共有シークレットで保護）
+
+> **解析結果（2026-11-18）**：
+> - ログインは**メール OTP**（`auth/email/login/start` → `/verify`）。SMS は無い。BFF からの再現が可能な見込み（bot 対策・レート制限は動的確認）。認証ヘッダーは `jwt-key: <token>`（`Authorization: Bearer` ではない）＋固定値の `x-api-key`。
+> - **リフレッシュトークンは存在しない。** 下の「期限の5分前／401 でリフレッシュ」は成立しない。トークンの有効期限もコード上に無く、`GET user/profile` の応答に新 `token` が含まれるか（＝ローテーションするか）は動的確認。
+> - 失効時は**メール OTP をやり直す**しかない。
 
 **保管と更新**
 
 - 保管先：Cloudflare KV（または D1）に暗号化して保存。暗号化鍵は Workers Secret
-- 更新：期限の5分前、または 401 を受けたときにリフレッシュ。1回だけリトライし、失敗したら「再登録が必要」状態にする
-- 同時更新の防止：リフレッシュはロック（Durable Object か KV のフラグ）で直列化する
+- 更新：リフレッシュトークンが無いので、`GET user/profile` の応答に新 `token` があれば差し替える。**失効（401）したら自動回復できず「再登録が必要」状態にし、管理画面でメール OTP をやり直す**
+- 同時更新の防止：トークン差し替えはロック（Durable Object か KV のフラグ）で直列化する
 - 失効時の通知：Discord Webhook へ「トークン再登録が必要」を送る
 
 ## 6. BFF 設計
@@ -86,19 +93,26 @@ BFF は Next.js の Route Handlers で実装し、setlog のレスポンスを�
 
 | メソッド | パス | 内容 | キャッシュ |
 | --- | --- | --- | --- |
-| GET | `/api/groups` | 所属グループ一覧（自分のソロログ含む） | 10分 |
-| GET | `/api/groups/:groupId/calendar?month=YYYY-MM` | 月内の投稿がある日と件数 | 10分 |
+| GET | `/api/groups` | 所属グループ一覧（自分のソロログ含む）。内部は `GET /collections` | 10分 |
+| GET | `/api/groups/:groupId/calendar?month=YYYY-MM` | 月内の投稿がある日（件数は返せない。後述） | 10分 |
 | GET | `/api/groups/:groupId/days/:date` | その日の24枠 × メンバーのクリップ一覧 | 当日：1分、過去日：1日 |
-| GET | `/api/clips/:clipId/media` | 動画本体。署名付き URL なら 302、そうでなければストリーミング中継 | ブラウザ側に任せる |
-| GET | `/api/clips/:clipId/thumb` | サムネイル（あれば） | 1日 |
+| GET | `/api/clips/:clipId/media` | 動画本体。MVP ではアーカイブ済み（R2）のみ返す（後述） | ブラウザ側に任せる |
+| GET | `/api/clips/:clipId/thumb` | サムネイル（端末生成分のみ。後述） | 1日 |
 | POST | `/api/admin/token` | setlog トークンの登録（cutlog から） | — |
+| POST | `/api/admin/clip` | 復号済み mp4 ＋メタデータの登録（cutlog から、方式 A′） | — |
 | GET | `/api/admin/status` | トークンの有効性、最終同期日時 | — |
 
 **実装方針**
 
-- setlog への通信は `lib/setlog/client.ts` に集約。必須ヘッダー、リトライ、レート制限（例：毎秒1件）をここで持つ
+- setlog への通信は `lib/setlog/client.ts` に集約。必須ヘッダー（`x-api-key`＋`jwt-key`）、リトライ、レート制限（例：毎秒1件）をここで持つ
 - レスポンスは zod で検証し、形が変わったら「API 仕様変更」エラーとしてログと通知を出す
 - フェーズ2以降は、過去日のリクエストをアーカイブ（D1 + R2）から先に返す。無ければ setlog に問い合わせる
+
+> **解析結果（2026-11-18）で変わる点**：
+> - **グループ一覧の実体は `GET /collections`**（`type`＝conversation/collection、`roomType`＝log/vlog/stack の 2 軸）。ソロログがここに含まれるかは動的確認。
+> - **カレンダー（`collection/{id}/messageDaysInMonth`）は投稿がある日の整数配列だけを返し、件数は返さない。** `/api/groups/:id/calendar` も「投稿あり/なしの二値」にするか、濃淡表示が要るなら日別 API を叩いて数える。
+> - **動画は E2EE で BFF 単独では復号できない**ため、`/api/clips/:id/media` は「署名付き URL なら 302、でなければ中継」が成立しない。MVP では cutlog が `POST /api/admin/clip` でアップロードした復号済み mp4（R2）を返す。
+> - **サムネイル API は setlog 側に無い。** 端末が動画から生成するので、cutlog が mp4 と一緒に送るか、`<video preload="metadata">` の先頭フレームで代替する。
 
 ## 7. データモデル
 
@@ -125,8 +139,8 @@ type Clip = {
   sourceId: string;
   groupId: string;
   memberId: string;
-  date: string;        // YYYY-MM-DD（Asia/Tokyo）
-  hour: number;        // 0–23 の時間枠
+  date: string;        // YYYY-MM-DD（現地 04:00 起点の「日」。04:00 未満は前日扱い）
+  hour: number;        // 0–23 の時間枠（04:00 起点。capturedAt から算出。API は返さない）
   capturedAt: string;  // ISO 8601
   durationMs: number;  // 約 2000
   mediaKey?: string;   // アーカイブ済みなら R2 のキー
@@ -140,20 +154,22 @@ type DayView = {
 };
 ```
 
-日付と時間枠は setlog の表示に合わせて Asia/Tokyo で計算する。API が時間枠を返すならその値を優先する。
+日付と時間枠は setlog の表示に合わせて Asia/Tokyo で計算する。
+
+> **解析結果（2026-11-18）**：**「日」の境界は 0 時ではなく現地 04:00**（アプリは `getHour() < 4` のとき前日扱いし、`atTime(4,0)` から 24 時間を 1 日分として問い合わせる）。`hour` は API が返さないので `capturedAt`（＝`timestamp`）から 04:00 起点で算出する（`hour = ((timestamp - その日の04:00) / 3,600,000)`、0–23）。アプリは端末の `ZoneId.systemDefault()` を使うので、表示を一致させるには端末が Asia/Tokyo である必要がある。「API が時間枠を返すならその値を優先する」は不要（返らない）。
 
 ## 8. 動画配信・再生
 
 動画は可能な限り CDN から直接再生し、BFF の中継は必要なときだけにする。Workers の帯域と CPU 時間を節約するため。
 
-**配信の分岐**
+> **解析結果（2026-11-18）で前提が変わる**：setlog の動画（`media.newchatapi.com` のバイト列）は **X25519＋ChaCha20-Poly1305 の E2EE 暗号文**で、`<video src>` にそのまま渡しても再生できない。復号鍵は端末の AndroidKeyStore 内（エクスポート不可）にあり、BFF では開けない。よって下表の「署名付き URL → 302」「ヘッダー必要 → 中継」は setlog の URL には使えない。**MVP で Web が扱う動画は、cutlog が端末で復号して R2 にアップロードした平文 mp4 だけ**になる（方式 A′）。HLS は使われておらず、形式は mp4（progressive）。
 
-| 動画 URL の形 | 処理 |
+**配信の分岐**（R2 の平文 mp4 を前提に整理し直す）
+
+| 動画の所在 | 処理 |
 | --- | --- |
-| 署名付き URL（ヘッダー不要） | BFF が 302 リダイレクト。期限切れなら取得し直す |
-| 認証ヘッダーや Cookie が必要 | BFF がストリーミング中継。`Range` ヘッダーをそのまま渡す |
-| HLS（`.m3u8`） | hls.js で再生。Safari はネイティブ再生 |
-| アーカイブ済み | R2 の署名付き URL を返す |
+| R2 にアーカイブ済み（復号済み mp4） | R2 の署名付き URL を返す（期限 10 分） |
+| 未アーカイブ | 再生不可。cutlog でのアップロード待ち（`/api/admin/status` に状態を出す） |
 
 **Vlog の連続再生**
 
@@ -183,7 +199,7 @@ Cron で毎時新着を取得し、メタデータを D1、動画を R2 に保�
 
 | 画面 | パス | 主な要素 |
 | --- | --- | --- |
-| ホーム | `/` | グループ切り替え、月カレンダー（日ごとの投稿数を濃淡で表示）、今日へのショートカット |
+| ホーム | `/` | グループ切り替え、月カレンダー（投稿がある日をマーク表示。カレンダー API は件数を返さないため濃淡は不可。濃淡が要る場合は日別 API を叩いて数える）、今日へのショートカット |
 | 日別ビュー | `/g/[groupId]/[date]` | 24枠グリッド（未投稿は黒）、行＝メンバー、列＝時間。ホバーでプレビュー、クリックで拡大 |
 | Vlog 再生 | `/g/[groupId]/[date]/play` | 全画面の連続再生、シークバーに時間枠の目盛り、←→キーで前後のクリップ |
 | 管理 | `/admin` | トークン状態、最終同期、アーカイブ対象グループの選択 |
@@ -261,13 +277,21 @@ fixtures/       # 伏せ字済みのレスポンス例
 
 ## 14. 未確定事項・リスク
 
-**未確定（フェーズ0 で決める）**
+**静的解析（2026-11-18）で判明した事項**（詳細は [static-analysis.md](static-analysis.md)）
 
-- バックエンドは独自 API か、Firebase / Supabase 等か
-- ログイン方式と、トークンの有効期限
-- リクエスト署名や端末証明（Play Integrity など）の有無
-- 動画の形式（mp4 か HLS か）と1 本あたりのサイズ
-- グループのクリップを「拡大できない」仕様が、API 側でも低解像度配信になっているか
+- バックエンドは**独自 REST**（`api.newchatapi.com` / AWS API Gateway）。Firebase は FCM 専用、Supabase 等なし
+- ログインは**メール OTP**。**リフレッシュトークン・有効期限はコード上に無い**（ローテーション有無は動的確認）
+- **リクエスト署名・端末証明は無い**（`x-api-key` は固定値、Play Integrity / App Check なし）
+- 動画は**mp4（progressive）**。ただし **E2EE 暗号文**で BFF 単独では復号できない。1 本のサイズは未計測
+- 拡大できない仕様が低解像度配信かは未確認（`media[].dimensions` に解像度だけ入る）
+
+**動的解析で残る未確定（優先順）**
+
+- `x-api-key`＋`jwt-key` だけで API が通るか（他ヘッダーを外して確認）
+- メール OTP を BFF から再現できるか（bot 対策・レート制限・IP 制限の有無）
+- `GET user/profile` がトークンをローテーションするか＝実質の有効期限
+- 動画 CDN（`media.newchatapi.com`）を無認証で GET できるか、1 本のサイズ・解像度
+- `/collections` にソロログが含まれるか、DM と混ざるか
 
 **リスクと対応**
 
@@ -275,5 +299,7 @@ fixtures/       # 伏せ字済みのレスポンス例
 | --- | --- | --- |
 | アプリ更新で API が変わる | 新着が取れなくなる | zod 検証で検知して通知。フェーズ2 のアーカイブで過去分は守る |
 | アカウント停止 | アプリ自体が使えなくなる | リクエスト頻度をアプリ並みに抑える。バックフィルは間隔を空ける |
-| 端末証明が必須 | BFF から直接取得できない | 方式 A′（cutlog が端末から取得してアップロード）に切り替える |
+| 動画が E2EE で BFF から復号できない（**判明済み**） | 方式 A だけでは動画が出せない | 方式 A′（cutlog が端末で復号して R2 にアップロード）を MVP の前提にする |
+| トークン失効時に自動回復できない（リフレッシュ無し） | 新着が止まる | 401 を「再登録が必要」状態にし、Discord 通知 → 管理画面でメール OTP やり直し |
+| `x-api-key` がアプリ更新で変わる | API が一斉に 403 | `lib/setlog` で定数 1 か所に閉じ込め、変更を検知して通知 |
 | 友達の動画の漏えい | 信頼とプライバシーの侵害 | Access、非公開 R2、短期限の署名 URL、フィクスチャの伏せ字 |
