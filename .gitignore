@@ -1,0 +1,35 @@
+# 依存・ビルド
+node_modules/
+.next/
+.open-next/
+out/
+dist/
+.wrangler/
+
+# 環境変数・シークレット
+.env
+.env.*
+!.env.example
+.dev.vars
+
+# API 解析の生データ（トークン・実名・実 URL を含むためコミットしない）
+# 伏せ字済みのものだけを fixtures/ に置く
+captures/
+*.har
+*.flow
+*.mitm
+*.pcap
+*.pcapng
+
+# APK と逆コンパイル結果
+*.apk
+*.apks
+*.xapk
+jadx-out/
+decompiled/
+
+# OS・エディタ
+.DS_Store
+.idea/
+.vscode/
+*.log
