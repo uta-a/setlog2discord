@@ -8,20 +8,23 @@
  * CDN の 403・404・410 は消えたものとして記録する失敗に入れる（media.ts が ClipDecryptError にする）。
  * 削除済み（REST の isDeleted）は投稿せず skipped で記録する。
  *
+ * 投稿は embed：author に名前とアイコン、本文に撮影時刻（JST の暦どおり、分まで）、左の色はその人の tintColor、
+ * フッターにグループ名。mp4 は embed の上に添付として並ぶ。
+ *
  * mp4 はメモリの Buffer のまま渡し、ディスクには書かない。通知に本文やメンバー名は出さない。
  */
 import { createHash } from "node:crypto";
-import { escapeMarkdown } from "discord.js";
 import {
   ClipDecryptError,
   ClipPayloadSchema,
   MediaFetchError,
-  clipTimeLabel,
+  clipTimeText,
   decryptClip,
   type Keyring,
 } from "../lib/setlog/media";
 import { short, type HandlerResult, type IncomingMessage } from "./ingest";
 import { log } from "./log";
+import type { AvatarImage, Profile } from "./members";
 import type { Notifier } from "./status";
 
 /** Discord に添付が大きすぎると断られた。 */
@@ -32,10 +35,19 @@ export class AttachmentTooLargeError extends Error {
   }
 }
 
+/** クリップの投稿内容。Discord の組み立て（embed）は main.ts がする。 */
+export type ClipPost = {
+  authorName: string;
+  timeText: string;
+  groupName: string;
+  color?: number;
+  video: { name: string; data: Buffer };
+  avatar?: { name: string; data: Buffer };
+};
+
 export type PostClip = (
   channelId: string,
-  content: string,
-  file: { name: string; data: Buffer },
+  post: ClipPost,
   /** 同じクリップの再送を Discord 側で弾くための値（messageId から作る。25 文字以内）。 */
   nonce: string,
 ) => Promise<string>;
@@ -45,11 +57,12 @@ export type ClipDeps = {
   myUserId: string;
   fetchMedia: (path: string) => Promise<Buffer>;
   post: PostClip;
-  memberName: (userId: string) => Promise<string | undefined>;
+  profile: (userId: string) => Promise<Profile | undefined>;
+  avatar: (path: string) => Promise<AvatarImage | undefined>;
   notify: Notifier;
   /** CDN の再試行の待ち時間（回数もこれで決まる）。既定 1, 2, 4 秒。 */
   retryDelaysMs?: number[];
-  /** メンバー名を待つ上限。過ぎたら仮の名前で投稿する。既定 5 秒。 */
+  /** プロフィールとアイコンを待つ上限。過ぎたら無しで投稿する。既定 5 秒。 */
   nameTimeoutMs?: number;
 };
 
@@ -61,11 +74,13 @@ export type ClipHandler = ((m: IncomingMessage) => Promise<HandlerResult>) & {
 const FALLBACK_NAME = "メンバー";
 const NAME_MAX = 64;
 
-/** 友達が自由に付けた名前を 1 行の短い文字列にし（制御文字と文字の向きの制御を除く）、Markdown を無効にする。 */
+/**
+ * 友達が自由に付けた名前を 1 行の短い文字列にする（制御文字と文字の向きの制御を除き、64 文字に切る）。
+ * embed の author は Markdown を解釈しないので、エスケープはしない。
+ */
 export function displayName(raw: string): string {
   const oneLine = raw.replace(/[\p{Cc}\u2028\u2029\u202a-\u202e\u2066-\u2069]+/gu, " ").replace(/\s+/g, " ").trim();
-  const cut = [...oneLine].slice(0, NAME_MAX).join("");
-  return escapeMarkdown(cut, { heading: true, maskedLink: true, bulletedList: true, numberedList: true });
+  return [...oneLine].slice(0, NAME_MAX).join("");
 }
 
 /** messageId から nonce（Discord の上限 25 文字）を作る。 */
@@ -158,15 +173,21 @@ export function createClipHandler(deps: ClipDeps): ClipHandler {
       throw e;
     }
 
+    const profile = await withTimeout(deps.profile(clip.senderId), nameTimeoutMs);
     // 空文字も「無い」とみなす（REST の senderName は空文字で返る。実測 2026-11-19）
-    const raw = (await withTimeout(deps.memberName(clip.senderId), nameTimeoutMs)) || clip.senderName || "";
-    const name = displayName(raw) || FALLBACK_NAME;
-    const content = `${name} · ${clipTimeLabel(clip.timestamp)}`;
+    const name = displayName(profile?.name || clip.senderName || "") || FALLBACK_NAME;
+    const icon = profile?.avatarPath ? await withTimeout(deps.avatar(profile.avatarPath), nameTimeoutMs) : undefined;
     try {
       const discordMessageId = await deps.post(
         m.group.clipsChannelId,
-        content,
-        { name: fileName(clip.timestamp, id), data: mp4 },
+        {
+          authorName: name,
+          timeText: clipTimeText(clip.timestamp),
+          groupName: m.group.name,
+          color: profile?.color,
+          video: { name: fileName(clip.timestamp, id), data: mp4 },
+          avatar: icon ? { name: `avatar.${icon.ext}`, data: icon.data } : undefined,
+        },
         clipNonce(id),
       );
       log.info(`クリップを投稿（${where}）`);

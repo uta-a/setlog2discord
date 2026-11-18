@@ -3,11 +3,11 @@ import { describe, expect, it } from "vitest";
 import { MediaFetchError } from "../lib/setlog/media";
 import type { MessageHead } from "../lib/setlog/realtime";
 import { keypair, makeEncryptedClip } from "../lib/setlog/test-helpers";
-import { AttachmentTooLargeError, clipNonce, createClipHandler, displayName, type ClipDeps } from "./clips";
+import { AttachmentTooLargeError, clipNonce, createClipHandler, displayName, type ClipDeps, type ClipPost } from "./clips";
 import { createIngest } from "./ingest";
 import { openState } from "./state";
 import type { GroupConfig } from "./config";
-import { createMemberDirectory } from "./members";
+import { createMemberDirectory, sniffImage } from "./members";
 
 const group: GroupConfig = {
   name: "友達",
@@ -16,12 +16,13 @@ const group: GroupConfig = {
   clipsChannelId: "100000000000000004",
   chatChannelId: "100000000000000005",
 };
+const JPEG = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 1, 2]);
 const MP4 = Buffer.concat([Buffer.from("\0\0\0\x18ftypmp42"), randomBytes(32)]);
 
 function setup(over: Partial<ClipDeps> = {}, clipOver = {}, fetchFailures = 0) {
   const me = keypair();
   const { clip, bytes } = makeEncryptedClip(me, MP4, clipOver);
-  const posts: { channelId: string; content: string; name: string; data: Buffer; nonce: string }[] = [];
+  const posts: (ClipPost & { channelId: string; nonce: string })[] = [];
   const notes: string[] = [];
   let fetches = 0;
   const handler = createClipHandler({
@@ -32,11 +33,12 @@ function setup(over: Partial<ClipDeps> = {}, clipOver = {}, fetchFailures = 0) {
       if (fetches <= fetchFailures) throw new MediaFetchError("HTTP 503");
       return bytes;
     },
-    post: async (channelId, content, file, nonce) => {
-      posts.push({ channelId, content, ...file, nonce });
+    post: async (channelId, post, nonce) => {
+      posts.push({ channelId, ...post, nonce });
       return "discord-1";
     },
-    memberName: async (id) => (id === "u-friend" ? "たろう" : undefined),
+    profile: async (id) => (id === "u-friend" ? { name: "たろう", avatarPath: "ap/a.heic", color: 0x65ea7b } : undefined),
+    avatar: async () => ({ data: JPEG, ext: "jpg" as const }),
     notify: async (t) => {
       notes.push(t);
     },
@@ -49,31 +51,39 @@ function setup(over: Partial<ClipDeps> = {}, clipOver = {}, fetchFailures = 0) {
 }
 
 describe("クリップのハンドラ", () => {
-  it("復号して clips チャンネルに「名前 · 暦どおりの時刻」で投稿する", async () => {
+  it("復号して clips チャンネルに、名前・アイコン・時刻・色・グループ名を付けて投稿する", async () => {
     const { run, posts } = setup();
     expect(await run()).toEqual({ result: "posted", discordMessageId: "discord-1" });
     expect(posts.length).toBe(1);
-    expect(posts[0].channelId).toBe("100000000000000004");
-    expect(posts[0].content).toBe("たろう · 11/18（水）22時台");
-    expect(posts[0].name).toBe("setlog-20261118-2205-msg-1.mp4");
-    expect(posts[0].data.equals(MP4)).toBe(true);
+    const p = posts[0];
+    expect(p.channelId).toBe("100000000000000004");
+    expect([p.authorName, p.timeText, p.groupName, p.color]).toEqual(["たろう", "11/18（水）22:05", "友達", 0x65ea7b]);
+    expect(p.video.name).toBe("setlog-20261118-2205-msg-1.mp4");
+    expect(p.video.data.equals(MP4)).toBe(true);
+    expect(p.avatar).toEqual({ name: "avatar.jpg", data: JPEG });
   });
 
-  it("名前が引けなければ senderName、それも無ければ仮の名前。Markdown はエスケープする", async () => {
-    const a = setup({ memberName: async () => undefined }, { senderName: "*はなこ*" });
+  it("名前が引けなければ senderName、それも無ければ仮の名前。アイコン・色は無しで投稿する", async () => {
+    const a = setup({ profile: async () => undefined }, { senderName: "はなこ" });
     await a.run();
-    expect(a.posts[0].content).toBe("\\*はなこ\\* · 11/18（水）22時台");
+    expect([a.posts[0].authorName, a.posts[0].avatar, a.posts[0].color]).toEqual(["はなこ", undefined, undefined]);
     const b = setup({
-      memberName: async () => {
+      profile: async () => {
         throw new Error("x");
       },
     });
     await b.run();
-    expect(b.posts[0].content).toMatch(/^メンバー · /);
+    expect(b.posts[0].authorName).toBe("メンバー");
     // REST の senderName は実際には空文字で返る
-    const c = setup({ memberName: async () => "" }, { senderName: "" });
+    const c = setup({ profile: async () => ({ name: "" }) }, { senderName: "" });
     await c.run();
-    expect(c.posts[0].content).toMatch(/^メンバー · /);
+    expect(c.posts[0].authorName).toBe("メンバー");
+  });
+
+  it("アイコンが取れなくても投稿する", async () => {
+    const { run, posts } = setup({ avatar: async () => undefined });
+    expect((await run())?.result).toBe("posted");
+    expect(posts[0].avatar).toBeUndefined();
   });
 
   it("削除済みは投稿せず skipped", async () => {
@@ -127,17 +137,25 @@ describe("クリップのハンドラ", () => {
   });
 });
 
-describe("メンバー名", () => {
+describe("メンバーのプロフィール", () => {
+  const P = (userId: string, name: string, extra = {}) => ({ userId, name, avatarUrl: null, ...extra });
+  const noImage = async () => Buffer.alloc(0);
+
+  it("名前・アイコンのパス・色を引く", async () => {
+    const dir = createMemberDirectory(async () => [P("a", "A", { avatarUrl: "ap/x.heic", tintColor: "#6565EAEA7B7BFFFF" })], noImage);
+    expect(await dir.profile("a")).toEqual({ name: "A", avatarPath: "ap/x.heic", color: 0x65ea7b });
+  });
+
   it("初めて見る userId はすぐ取り直す（新しく入った友達）", async () => {
     let calls = 0;
     const dir = createMemberDirectory(async () => {
       calls++;
-      return calls === 1 ? [{ userId: "a", name: "A" }] : [{ userId: "a", name: "A" }, { userId: "b", name: "B" }];
-    });
-    expect(await dir.name("a")).toBe("A");
-    expect(await dir.name("a")).toBe("A");
+      return calls === 1 ? [P("a", "A")] : [P("a", "A"), P("b", "B")];
+    }, noImage);
+    expect((await dir.profile("a"))?.name).toBe("A");
+    expect((await dir.profile("a"))?.name).toBe("A");
     expect(calls).toBe(1);
-    expect(await dir.name("b")).toBe("B");
+    expect((await dir.profile("b"))?.name).toBe("B");
     expect(calls).toBe(2);
   });
 
@@ -147,30 +165,54 @@ describe("メンバー名", () => {
     const dir = createMemberDirectory(
       async () => {
         calls++;
-        return [{ userId: "a", name: "A" }];
+        return [P("a", "A")];
       },
+      noImage,
       { minRefreshMs: 100, now: () => t },
     );
-    expect(await dir.name("x")).toBeUndefined();
-    expect(await dir.name("x")).toBeUndefined();
+    expect(await dir.profile("x")).toBeUndefined();
+    expect(await dir.profile("x")).toBeUndefined();
     expect(calls).toBe(1);
     t = 150;
-    await dir.name("x");
+    await dir.profile("x");
     expect(calls).toBe(2);
   });
 
   it("取得に失敗しても投げない", async () => {
     const dir = createMemberDirectory(async () => {
       throw new Error("x");
+    }, noImage);
+    expect(await dir.profile("a")).toBeUndefined();
+  });
+
+  it("アイコンは中身で形式を見て、パスごとに覚える。一時的な失敗は覚えない", async () => {
+    let calls = 0;
+    let flaky = 0;
+    const dir = createMemberDirectory(async () => [], async (path) => {
+      calls++;
+      if (path === "flaky" && ++flaky === 1) throw new Error("503");
+      return path === "heic" ? Buffer.from("....ftypheic") : JPEG;
     });
-    expect(await dir.name("a")).toBeUndefined();
+    expect((await dir.avatar("a.heic"))?.ext).toBe("jpg");
+    await dir.avatar("a.heic");
+    expect(calls).toBe(1);
+    expect(await dir.avatar("heic")).toBeUndefined();
+    expect(await dir.avatar("flaky")).toBeUndefined();
+    expect((await dir.avatar("flaky"))?.ext).toBe("jpg");
+  });
+
+  it("sniffImage は JPEG・PNG・WebP・GIF だけを通す", () => {
+    expect(sniffImage(JPEG)).toBe("jpg");
+    expect(sniffImage(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))).toBe("png");
+    expect(sniffImage(Buffer.from("RIFF0000WEBP"))).toBe("webp");
+    expect(sniffImage(Buffer.from("GIF89a"))).toBe("gif");
+    expect(sniffImage(Buffer.from("....ftypheic"))).toBeUndefined();
   });
 });
 
 describe("レビューで直した点", () => {
-  it("名前を 1 行・64 文字にし、リンク・見出し・リストも無効にする", () => {
-    expect(displayName("# 見出し\n[公式](https://evil.example)")).toBe("\\# 見出し \\[公式](https://evil.example)");
-    expect(displayName("- a")).toBe("\\- a");
+  it("名前を 1 行・64 文字にする（embed の author は Markdown を解釈しないのでエスケープしない）", () => {
+    expect(displayName("# 見出し\n[公式](x)")).toBe("# 見出し [公式](x)");
     expect([...displayName("あ".repeat(100))].length).toBe(64);
     expect(displayName("\u202eabc\u0007")).toBe("abc");
   });
@@ -207,9 +249,9 @@ describe("レビューで直した点", () => {
   });
 
   it("メンバー名が返ってこなければ待ちきらずに仮の名前で投稿する", async () => {
-    const { run, posts } = setup({ memberName: () => new Promise(() => {}), nameTimeoutMs: 20 });
+    const { run, posts } = setup({ profile: () => new Promise(() => {}), nameTimeoutMs: 20 });
     await run();
-    expect(posts[0].content).toMatch(/^メンバー · /);
+    expect(posts[0].authorName).toBe("メンバー");
   });
 
   it("WebSocket のフレームから投稿まで通り、一時的な失敗は次の補完で 1 回だけ投稿される", async () => {

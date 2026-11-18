@@ -39,15 +39,17 @@ export function startReceiver(
 ): Receiver {
   const store = openState(opts.statePath);
   const setlog = new SetlogClient({ apiKey: config.setlog.apiKey, token: config.setlog.token });
-  const members = createMemberDirectory(async () =>
-    (await setlog.getCollections()).flatMap((c) => c.participants.map((p) => ({ userId: p.userId, name: p.name }))),
+  const members = createMemberDirectory(
+    async () => (await setlog.getCollections()).flatMap((c) => c.participants),
+    (path) => fetchMedia(path, { maxBytes: 5 * 1024 * 1024 }),
   );
   const clipHandler = createClipHandler({
     keyring: opts.keyring,
     myUserId: config.setlog.userId,
     fetchMedia: (path) => fetchMedia(path),
     post: opts.postClip,
-    memberName: (id) => members.name(id),
+    profile: (id) => members.profile(id),
+    avatar: (path) => members.avatar(path),
     notify,
   });
   const ingest = createIngest({

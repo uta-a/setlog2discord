@@ -18,7 +18,7 @@ import {
   DiscordAPIError,
   Events,
   GatewayIntentBits,
-  MessageFlags,
+  EmbedBuilder,
   PermissionFlagsBits,
 } from "discord.js";
 import { AttachmentTooLargeError, type PostClip } from "./clips";
@@ -66,19 +66,28 @@ function isTooLarge(e: unknown): boolean {
   return e instanceof DiscordAPIError && (e.status === 413 || e.code === 40005);
 }
 
+/** 投稿の左の色。tintColor が無い人の既定色。 */
+const DEFAULT_COLOR = 0x8a8f98;
+
 function clipPoster(client: Client): PostClip {
-  return async (channelId, content, file, nonce) => {
+  return async (channelId, post, nonce) => {
     const ch = await client.channels.fetch(channelId);
     if (!ch?.isSendable()) throw new Error("clips チャンネルに送信できない");
+    const embed = new EmbedBuilder()
+      .setAuthor({ name: post.authorName, iconURL: post.avatar ? `attachment://${post.avatar.name}` : undefined })
+      .setDescription(post.timeText)
+      .setColor(post.color ?? DEFAULT_COLOR)
+      .setFooter({ text: post.groupName });
+    const files = [{ attachment: post.video.data, name: post.video.name }];
+    if (post.avatar) files.push({ attachment: post.avatar.data, name: post.avatar.name });
     try {
       const msg = await ch.send({
-        content,
-        files: [{ attachment: file.data, name: file.name }],
+        embeds: [embed],
+        files,
         allowedMentions: { parse: [] },
         // 応答が失われて送り直したときに、Discord 側で同じクリップの二重投稿を弾く
         nonce,
         enforceNonce: true,
-        flags: MessageFlags.SuppressEmbeds,
       });
       return msg.id;
     } catch (e) {

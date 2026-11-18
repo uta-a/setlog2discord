@@ -143,8 +143,23 @@ export function decryptClip(clip: ClipPayload, bytes: Buffer, keyring: Keyring, 
 
 const WEEKDAYS = ["日", "月", "火", "水", "木", "金", "土"];
 
-/** 撮影時刻を JST の暦どおりに「11/19（木）2時台」と書く（04:00 区切りの日付ではない）。 */
-export function clipTimeLabel(ts: number): string {
+/** 撮影時刻を JST の暦どおりに「11/19（木）2:05」と書く（04:00 区切りの日付ではない）。 */
+export function clipTimeText(ts: number): string {
   const w = new Date(ts + 9 * 60 * 60 * 1000);
-  return `${w.getUTCMonth() + 1}/${w.getUTCDate()}（${WEEKDAYS[w.getUTCDay()]}）${w.getUTCHours()}時台`;
+  const mm = String(w.getUTCMinutes()).padStart(2, "0");
+  return `${w.getUTCMonth() + 1}/${w.getUTCDate()}（${WEEKDAYS[w.getUTCDay()]}）${w.getUTCHours()}:${mm}`;
+}
+
+/**
+ * setlog の tintColor を 0xRRGGBB にする。実物は「#6565EAEA7B7BFFFF」のように各成分 16 ビット
+ * （上位と下位が同じ）で、RRRRGGGGBBBBAAAA の並び。#RRGGBB と #RRGGBBAA も受ける。読めなければ undefined。
+ */
+export function parseTintColor(tint: string | null | undefined): number | undefined {
+  const hex = tint?.match(/^#([0-9a-fA-F]+)$/)?.[1];
+  if (!hex) return undefined;
+  let r: string, g: string, b: string;
+  if (hex.length === 16) [r, g, b] = [hex.slice(0, 2), hex.slice(4, 6), hex.slice(8, 10)];
+  else if (hex.length === 6 || hex.length === 8) [r, g, b] = [hex.slice(0, 2), hex.slice(2, 4), hex.slice(4, 6)];
+  else return undefined;
+  return parseInt(r + g + b, 16);
 }

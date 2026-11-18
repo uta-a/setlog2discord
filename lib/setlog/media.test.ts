@@ -3,7 +3,8 @@ import { describe, expect, it } from "vitest";
 import {
   ClipDecryptError,
   MediaFetchError,
-  clipTimeLabel,
+  clipTimeText,
+  parseTintColor,
   decryptClip,
   fetchMedia,
   mediaUrl,
@@ -81,10 +82,24 @@ describe("fetchMedia", () => {
   });
 });
 
-describe("clipTimeLabel", () => {
-  it("JST の暦どおりに書く（04:00 区切りにしない）", () => {
-    expect(clipTimeLabel(Date.UTC(2026, 10, 18, 13, 5))).toBe("11/18（水）22時台");
-    expect(clipTimeLabel(Date.UTC(2026, 10, 18, 17, 30))).toBe("11/19（木）2時台");
+describe("clipTimeText", () => {
+  it("JST の暦どおりに分まで書く（04:00 区切りにしない）", () => {
+    expect(clipTimeText(Date.UTC(2026, 10, 18, 13, 5))).toBe("11/18（水）22:05");
+    expect(clipTimeText(Date.UTC(2026, 10, 18, 17, 30))).toBe("11/19（木）2:30");
+  });
+});
+
+describe("parseTintColor", () => {
+  it("各成分 16 ビットの形と、#RRGGBB・#RRGGBBAA を 0xRRGGBB にする", () => {
+    expect(parseTintColor("#6565EAEA7B7BFFFF")).toBe(0x65ea7b);
+    expect(parseTintColor("#11d5f3")).toBe(0x11d5f3);
+    expect(parseTintColor("#11d5f3ff")).toBe(0x11d5f3);
+  });
+  it("読めなければ undefined", () => {
+    expect(parseTintColor(undefined)).toBeUndefined();
+    expect(parseTintColor(null)).toBeUndefined();
+    expect(parseTintColor("red")).toBeUndefined();
+    expect(parseTintColor("#123")).toBeUndefined();
   });
 });
 
