@@ -97,7 +97,7 @@ setlog の友達の新着（2秒クリップとグループのテキストチャ
 
 **E2EE の秘密鍵**
 
-- 動画とテキストの復号、テキストの送信に、自分の X25519 秘密鍵が要る。鍵バックアップ（`GET auth/key-backup`）とパスフレーズを Bot のホストに置き、起動時に `recoverPrivateKeyFromBackup` で復元してメモリに持つ
+- 動画とテキストの復号、テキストの送信に、自分の X25519 秘密鍵が要る。鍵バックアップ（`GET auth/key-backup`）とパスフレーズを Bot のホストに置き、起動時に `recoverPrivateKeyFromBackup` で復元してメモリに持つ。場所は `BOT_KEY_BACKUPS`（カンマ区切り、既定 `.secrets.keybackup.json`）と `BOT_PASSPHRASE_FILE`（既定 `.secrets.passphrase`）。復元できなければ起動しない
 - **鍵の世代（`kid`）**：端末を再登録すると鍵がローテーションし、旧鍵で暗号化されたものは新鍵で開けない。鍵は `kid` ごとに複数持てる形にし、メッセージの自分宛エントリの `kid` で選ぶ。合う鍵が無いメッセージはスキップして `#bot-status` に通知する（Bot 全体は止めない）
 
 ## 6. Discord 側の構成
@@ -134,7 +134,14 @@ setlog の友達の新着（2秒クリップとグループのテキストチャ
 4. `media.path` を `https://media.newchatapi.com/` から取得し、`decryptMedia` で mp4 に戻す
 5. `#<グループ名>-clips` に投稿し、`messageId` と Discord のメッセージ ID を状態ストアに記録する
 
-失敗したとき：CDN の取得失敗はバックオフして 3 回まで再試行する。復号失敗（`kid` 不一致など）は再試行せず `#bot-status` に通知して記録する。
+失敗したとき：
+
+- 復号失敗（自分宛の鍵が無い、`kid` 不一致など）、形の違い、大きすぎるもの：再試行せず、`failed` で記録して `#bot-status` に通知する
+- CDN の取得失敗：バックオフして 3 回まで再試行する。それでも失敗したら記録せず、次の REST 補完で拾い直す（自宅回線の一時的な切断でクリップを失わないため）。通知は同じメッセージにつき 1 回
+- Discord への投稿失敗：記録せず、次の補完で拾い直す。添付の上限超えだけは `failed`
+- 削除済み（REST の `isDeleted`）：投稿せず `skipped` で記録する
+
+1 行目の時刻は JST の暦どおりに書く（04:00 区切りの日付にしない。例：11/19 02:30 の撮影は「11/19（木）2時台」）。メンバー名は `collections` の参加者から引き、引けなければ「メンバー」とする（REST の `senderName` は空文字で返る）。
 
 ### 7.2 テキストの転送（setlog → Discord）
 
@@ -228,7 +235,7 @@ Next.js 関連（`app/`、`lib/bff.ts`、`next.config.ts`、`AGENTS.md`）は削
 
 - [x] B0：Next.js を外して Bot の骨組み（Discord 接続、guild 制限、設定、`#bot-status`）
 - [x] B1：setlog の WebSocket 受信、再接続、REST 補完、状態ストア（受け取ったことをログに出すまで。状態ストアへの記録は B2・B3 で始める）
-- [ ] B2：クリップの復号と投稿
+- [x] B2：クリップの復号と投稿
 - [ ] B3：テキストの転送（setlog → Discord）
 - [ ] B4：テキストの送信（Discord → setlog）
 - [ ] B5：自宅サーバーへの導入（systemd）

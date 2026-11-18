@@ -13,14 +13,15 @@ setlog の友達の新着（2秒クリップとグループのテキストチャ
 
 ## 現在のフェーズ
 
-フェーズ0（API 解析）は完了。フェーズ1（Bot）は B1（setlog の WebSocket 受信・REST 補完・状態ストア）まで実装済みで、次は B2（クリップの復号と投稿）。
+フェーズ0（API 解析）は完了。フェーズ1（Bot）は B2（クリップの復号と投稿）まで実装済みで、次は B3（テキストの転送）。
 
 ## 起動
 
 1. Discord Developer Portal で Bot アプリを作り、自分のサーバーに招待する（権限：チャンネルを見る・メッセージを送信・ファイルを添付）
 2. `.env.local`（または `.env`）に `DISCORD_TOKEN=...` を書く。setlog の `SETLOG_TOKEN`・`SETLOG_USER_ID`・`SETLOG_X_API_KEY` も同じファイルに置く（`tools/setlog-login.ts` の verify で前の 2 つは書き込まれる）
-3. `bot.config.example.json` を `bot.config.json` にコピーし、guild・自分のユーザー ID・チャンネル ID・setlog の `conversationId` を書く
-4. `pnpm install` → `pnpm start`
+3. 鍵バックアップ（`.secrets.keybackup.json`、verify で保存される）とパスフレーズ（`.secrets.passphrase`、自分で書く）を置く
+4. `bot.config.example.json` を `bot.config.json` にコピーし、guild・自分のユーザー ID・チャンネル ID・setlog の `conversationId` を書く
+5. `pnpm install` → `pnpm start`
 
 起動すると、設定外の guild から退出し、設定したチャンネルを確かめてから `#bot-status` に起動を通知する。
 

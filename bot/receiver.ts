@@ -5,13 +5,16 @@
  * - トークン失効（接続時の 401・補完中の 401）と close 4403 では受信を止めて通知する。
  *   プロセスは止めない（systemd に再起動されて setlog に接続を繰り返さないため）
  *
- * B1 ではクリップ・テキストを受け取ったことをログに出すだけで、状態ストアには記録しない
- * （記録すると B2・B3 で投稿されなくなる）。
+ * クリップは復号して clips チャンネルに投稿する（B2）。テキストは受け取ったことをログに出すだけで、
+ * 状態ストアには記録しない（記録すると B3 で転送されなくなる）。
  */
 import { SetlogAuthError, SetlogClient, SetlogSchemaError } from "../lib/setlog/client";
+import { fetchMedia, type Keyring } from "../lib/setlog/media";
+import { createClipHandler, type PostClip } from "./clips";
 import type { BotConfig } from "./config";
 import { createIngest, short, type MessageHandler } from "./ingest";
 import { log } from "./log";
+import { createMemberDirectory } from "./members";
 import { startSetlogSocket, type FatalReason, type SetlogSocket } from "./setlog-socket";
 import { openState } from "./state";
 import type { Notifier } from "./status";
@@ -23,7 +26,7 @@ const FATAL_TEXT: Record<FatalReason, string> = {
   locked: "setlog から close 4403（アカウントロックの可能性）。受信を止めた。アプリで状態を確かめる",
 };
 
-/** B1 の仮ハンドラ：受け取ったことだけをログに出す。 */
+/** テキストの仮ハンドラ（B3 まで）：受け取ったことだけをログに出す。 */
 const logOnly: MessageHandler = async (m) => {
   log.info(`受信 ${m.kind}（${m.group.name} msg=${short(m.message.messageId)}）`);
   return undefined;
@@ -32,15 +35,26 @@ const logOnly: MessageHandler = async (m) => {
 export function startReceiver(
   config: BotConfig,
   notify: Notifier,
-  opts: { statePath: string; startedAt: number; handler?: MessageHandler },
+  opts: { statePath: string; startedAt: number; keyring: Keyring; postClip: PostClip },
 ): Receiver {
   const store = openState(opts.statePath);
   const setlog = new SetlogClient({ apiKey: config.setlog.apiKey, token: config.setlog.token });
+  const members = createMemberDirectory(async () =>
+    (await setlog.getCollections()).flatMap((c) => c.participants.map((p) => ({ userId: p.userId, name: p.name }))),
+  );
+  const clipHandler = createClipHandler({
+    keyring: opts.keyring,
+    myUserId: config.setlog.userId,
+    fetchMedia: (path) => fetchMedia(path),
+    post: opts.postClip,
+    memberName: (id) => members.name(id),
+    notify,
+  });
   const ingest = createIngest({
     store,
     myUserId: config.setlog.userId,
     groups: config.groups,
-    handler: opts.handler ?? logOnly,
+    handler: (m) => (m.kind === "clip" ? clipHandler(m) : logOnly(m)),
     notify,
     fetchMessages: (conv, o) => setlog.getConversationMessages(conv, o),
     startedAt: opts.startedAt,

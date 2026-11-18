@@ -7,13 +7,16 @@
  * 確認が通ったら setlog の受信（B1）を始める。
  *
  * 使い方: pnpm start
- *   環境変数 DISCORD_TOKEN・SETLOG_TOKEN・SETLOG_USER_ID・SETLOG_X_API_KEY、設定ファイル bot.config.json。
+ *   環境変数 DISCORD_TOKEN・SETLOG_TOKEN・SETLOG_USER_ID・SETLOG_X_API_KEY、設定ファイル bot.config.json、
+ *   鍵バックアップ .secrets.keybackup.json とパスフレーズ .secrets.passphrase（BOT_KEY_BACKUPS・BOT_PASSPHRASE_FILE で変更可）。
  *   設定ファイルの場所は BOT_CONFIG、状態ストアの場所は BOT_STATE（既定 data/state.sqlite）で変えられる。
  */
 import { readFileSync } from "node:fs";
-import { ChannelType, Client, Events, GatewayIntentBits, PermissionFlagsBits } from "discord.js";
+import { ChannelType, Client, DiscordAPIError, Events, GatewayIntentBits, PermissionFlagsBits } from "discord.js";
+import { AttachmentTooLargeError, type PostClip } from "./clips";
 import { ConfigError, configuredChannels, loadConfig, type BotConfig } from "./config";
 import { channelProblems, guildsToLeave, type ChannelInfo } from "./guard";
+import { loadKeyring } from "./keys";
 import { log } from "./log";
 import { startReceiver, type Receiver } from "./receiver";
 import { createNotifier } from "./status";
@@ -50,9 +53,34 @@ async function channelInfo(client: Client, id: string): Promise<ChannelInfo | nu
   }
 }
 
+/** Discord の「添付が大きすぎる」（HTTP 413・JSON コード 40005）。 */
+function isTooLarge(e: unknown): boolean {
+  return e instanceof DiscordAPIError && (e.status === 413 || e.code === 40005);
+}
+
+function clipPoster(client: Client): PostClip {
+  return async (channelId, content, file) => {
+    const ch = await client.channels.fetch(channelId);
+    if (!ch?.isSendable()) throw new Error("clips チャンネルに送信できない");
+    try {
+      const msg = await ch.send({
+        content,
+        files: [{ attachment: file.data, name: file.name }],
+        allowedMentions: { parse: [] },
+      });
+      return msg.id;
+    } catch (e) {
+      if (isTooLarge(e)) throw new AttachmentTooLargeError();
+      throw e;
+    }
+  };
+}
+
 async function main(): Promise<void> {
   const startedAt = Date.now();
   const config = readConfig();
+  const keyring = loadKeyring(process.env);
+  log.info(`鍵を復元（${keyring.size} 件）`);
   let receiver: Receiver | null = null;
   const client = new Client({ intents: [GatewayIntentBits.Guilds] });
   const notify = createNotifier(client, config.statusChannelId);
@@ -92,6 +120,8 @@ async function main(): Promise<void> {
     receiver = startReceiver(config, notify, {
       statePath: process.env.BOT_STATE ?? "data/state.sqlite",
       startedAt,
+      keyring,
+      postClip: clipPoster(c),
     });
   });
 
@@ -111,7 +141,7 @@ async function main(): Promise<void> {
 }
 
 main().catch((e) => {
-  // ConfigError は値を含まない。それ以外もメッセージだけを出す
+  // ConfigError・KeyringError は値を含まない。それ以外もメッセージだけを出す
   log.error(e instanceof Error ? e.message : String(e));
   process.exit(1);
 });
