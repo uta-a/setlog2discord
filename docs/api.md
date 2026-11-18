@@ -135,6 +135,24 @@
 - 復号に必要なのは (a) 端末内の秘密鍵、または (b) 鍵バックアップのパスフレーズ（PBKDF2-HMAC-SHA256 60 万回）
 - 帰結：動画は方式 A（BFF 中継）では取れない。A′（端末で復号してアップロード）が必要
 
+### 4.8 テキストチャット（受信・送信）
+
+動的解析で確定（2026-11-18、実 API で送受信を検証）。
+
+- **会話一覧**：`GET chat/conversations` → `{success, conversations[], lastEvaluatedKey}`（DM。collection とは別）
+- **参加者の鍵**：`GET chat/message/participantKeys?conversationId={id}` → `{success, participants[{userId, name, publicKey, kid, …}]}`（送信時の鍵ラップに使う。自分も含まれる）
+- **メッセージ取得**：`GET chat/{conversationId}/messages?limit=40[&beforeTimestamp=<ms>]`。テキストは `contentType="text/plain"` で `envelope` を持ち `media` は無い
+- **送信**：`POST chat/{conversationId}/message`（単数 `message`）
+  ```json
+  { "type": "chat", "conversationId": "<id>", "messageId": "<uuid>", "uuid": "<uuid>",
+    "refreshesStaleKeys": true, "contentType": "text/plain",
+    "keys": [ { uid, kid, v, alg, saltB64, wrappedB64, senderKid, senderPublicKey } ],
+    "envelope": { v, alg: "CHACHA20-POLY1305", aadB64, combinedB64 } }
+  ```
+  応答：`{ success, messageId }`（200）
+- **暗号**：content key（ランダム32B）でテキストを ChaCha20-Poly1305 で封入し `envelope` に。`aadB64` は content info（`msg:enc:v1|conv:{convId}|msg:{msgId}|sender:{senderId}|type:text/plain`）の base64。content key を各参加者の公開鍵宛に X25519→HKDF→ChaCha20-Poly1305 でラップし `keys[]` に。実装は `lib/setlog/crypto.ts`（`encryptText`/`decryptText`）
+- フィクスチャ：実データにトークン/本文が絡むためコミットしない（`captures/` のみ）
+
 ## 5. 判定
 
 | 判定項目 | 結果 |
