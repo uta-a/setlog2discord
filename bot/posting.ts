@@ -26,7 +26,7 @@ export type FileData = { name: string; data: Buffer };
  * クリップの投稿：カード（Components V2 のコンテナ）の中に、送信者の名前 1 行とその下に動画を並べる。
  * 従来の embed には Bot から動画を入れられず、添付は embed の上に出てしまうため。
  */
-export type ClipCardPost = { layout: "clip"; authorName: string; color?: number; video: FileData };
+export type ClipCardPost = { layout: "clip"; authorName: string; color?: number; avatar?: FileData; video: FileData };
 
 /** embed 1 つの投稿（テキスト用）。 */
 export type CardPost = {

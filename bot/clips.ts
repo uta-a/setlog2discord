@@ -8,8 +8,8 @@
  * CDN の 403・404・410 は消えたものとして記録する失敗に入れる（media.ts が ClipDecryptError にする）。
  * 削除済み（REST の isDeleted）は投稿せず skipped で記録する。
  *
- * 投稿はカード（Components V2 のコンテナ）：左の帯にその人の tintColor、中に送信者の名前 1 行と、その下に mp4。
- * 日付・アイコン・グループ名は出さない。
+ * 投稿はカード（Components V2 のコンテナ）：左の帯にその人の tintColor、中に送信者の名前 1 行（右にアイコン）と、
+ * その下に mp4。日付・グループ名は出さない。
  *
  * mp4 はメモリの Buffer のまま渡し、ディスクには書かない。通知に本文やメンバー名は出さない。
  */
@@ -100,8 +100,8 @@ export function createClipHandler(deps: ClipDeps): ClipHandler {
       throw e;
     }
 
-    // 名前だけを動画の上に 1 行で出す（アイコン・時刻・グループ名は出さない。色はカードの帯に使う）
-    const author = await resolveAuthor({ ...deps, avatar: async () => undefined }, clip.senderId, clip.senderName, nameTimeoutMs);
+    // 名前とアイコンを動画の上に出す（時刻・グループ名は出さない。色はカードの帯に使う）
+    const author = await resolveAuthor(deps, clip.senderId, clip.senderName, nameTimeoutMs);
     try {
       const discordMessageId = await deps.post(
         m.group.clipsChannelId,
@@ -109,6 +109,7 @@ export function createClipHandler(deps: ClipDeps): ClipHandler {
           layout: "clip",
           authorName: author.name,
           color: author.color,
+          avatar: author.avatar,
           video: { name: fileName(clip.timestamp, id), data: mp4 },
         },
         clipNonce(id),

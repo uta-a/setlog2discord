@@ -53,7 +53,7 @@ function setup(over: Partial<ClipDeps> = {}, clipOver = {}, fetchFailures = 0) {
 }
 
 describe("クリップのハンドラ", () => {
-  it("復号して clips チャンネルに、名前 1 行・色・動画で投稿する（日付・アイコンは出さない）", async () => {
+  it("復号して clips チャンネルに、名前 1 行・アイコン・色・動画で投稿する（日付は出さない）", async () => {
     let avatarCalls = 0;
     const { run, posts } = setup({
       avatar: async () => {
@@ -65,11 +65,12 @@ describe("クリップのハンドラ", () => {
     expect(posts.length).toBe(1);
     const p = posts[0];
     expect(p.channelId).toBe("100000000000000004");
-    expect(Object.keys(p).sort()).toEqual(["authorName", "channelId", "color", "layout", "nonce", "video"]);
+    expect(Object.keys(p).sort()).toEqual(["authorName", "avatar", "channelId", "color", "layout", "nonce", "video"]);
     expect([p.authorName, p.color]).toEqual(["たろう", 0x65ea7b]);
+    expect(p.avatar).toEqual({ name: "avatar.jpg", data: JPEG });
     expect(p.video.name).toBe("setlog-20261118-2205-msg-1.mp4");
     expect(p.video.data.equals(MP4)).toBe(true);
-    expect(avatarCalls).toBe(0);
+    expect(avatarCalls).toBe(1);
   });
 
   it("名前が引けなければ senderName、それも無ければ仮の名前。アイコン・色は無しで投稿する", async () => {

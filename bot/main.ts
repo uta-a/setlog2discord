@@ -85,14 +85,26 @@ function embedPoster(client: Client): PostEmbed {
     if (post.layout === "clip") {
       // 名前は友達が自由に付けられるので、書式・リンクとして解釈させない
       const name = escapeMarkdown(post.authorName, { heading: true, maskedLink: true, bulletedList: true, numberedList: true });
-      const card = new ContainerBuilder()
-        .setAccentColor(post.color ?? DEFAULT_COLOR)
-        .addTextDisplayComponents((t) => t.setContent(`**${name}**`))
-        .addMediaGalleryComponents((g) => g.addItems((i) => i.setURL(`attachment://${post.video.name}`)));
+      const card = new ContainerBuilder().setAccentColor(post.color ?? DEFAULT_COLOR);
+      const avatar = post.avatar;
+      if (avatar) {
+        // アイコンはセクションの右側のサムネイルとして出す（Components V2 で名前の横に画像を置ける唯一の形）
+        card.addSectionComponents((s) =>
+          s
+            .addTextDisplayComponents((t) => t.setContent(`**${name}**`))
+            .setThumbnailAccessory((th) => th.setURL(`attachment://${avatar.name}`)),
+        );
+      } else {
+        card.addTextDisplayComponents((t) => t.setContent(`**${name}**`));
+      }
+      card.addMediaGalleryComponents((g) => g.addItems((i) => i.setURL(`attachment://${post.video.name}`)));
+      const files = [post.video, post.avatar]
+        .filter((f) => f !== undefined)
+        .map((f) => ({ attachment: f.data, name: f.name }));
       payload = {
         ...common,
         components: [card],
-        files: [{ attachment: post.video.data, name: post.video.name }],
+        files,
         flags: MessageFlags.IsComponentsV2,
       };
     } else {
