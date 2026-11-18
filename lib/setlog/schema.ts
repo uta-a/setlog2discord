@@ -17,9 +17,9 @@ import { z } from "zod";
 export const ParticipantSchema = z.object({
   userId: z.string(),
   name: z.string(),
-  lastName: z.string(),
+  lastName: z.string().nullable(), // 未設定の人は null（新アカウントで観測）
   avatarUrl: z.string().nullable(),
-  tintColor: z.string().nullable(),
+  tintColor: z.string().nullable().optional(), // 項目ごと無い人がいる（新アカウントで観測）
   language: z.string(),
   timezone: z.string(),
   region: z.string(),
@@ -63,7 +63,7 @@ export const CollectionSchema = z.object({
   id: z.string(),
   name: z.string(),
   type: z.string(), // "collection"（グループ/ソロ）。DM は別経路なので基本出ない
-  roomType: z.string(), // "log" | "vlog" | "stack"
+  roomType: z.string().optional(), // "log" | "vlog" | "stack"。項目が無いグループもある（新アカウントで観測）
   creatorId: z.string(),
   createdTimestamp: z.string(),
   updatedTimestamp: z.string(),

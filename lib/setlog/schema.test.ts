@@ -27,6 +27,17 @@ describe("setlog スキーマ × fixtures", () => {
     expect(r.lastEvaluatedKey).toBeNull();
   });
 
+  it("collections：tintColor が無い・lastName が null・roomType が無いグループも通る（2026-11-18 新アカウントで観測）", () => {
+    const raw = load("groups.list");
+    const g = raw.collections[0];
+    delete g.roomType;
+    delete g.participants[0].tintColor;
+    g.participants[0].lastName = null;
+    const r = CollectionsResponseSchema.parse(raw);
+    expect(r.collections[0].roomType).toBeUndefined();
+    expect(r.collections[0].participants[0].lastName).toBeNull();
+  });
+
   it("calendar.month（days 配列のみ）", () => {
     const r = CalendarResponseSchema.parse(load("calendar.month"));
     expect(r.days).toEqual([3, 4]);

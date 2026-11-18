@@ -13,7 +13,7 @@ export type Member = {
 export type Group = {
   sourceId: string; // setlog の collection id
   name: string;
-  roomType: string; // "log" | "vlog" | "stack"
+  roomType?: string; // "log" | "vlog" | "stack"。setlog が返さないグループもある
   isSolo: boolean; // 参加者が自分だけか
   memberIds: string[]; // sourceId の配列
 };

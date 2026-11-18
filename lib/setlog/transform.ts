@@ -37,7 +37,7 @@ export function toMember(p: {
   userId: string;
   name: string;
   avatarUrl: string | null;
-  tintColor: string | null;
+  tintColor?: string | null;
 }): Member {
   return {
     sourceId: p.userId,
