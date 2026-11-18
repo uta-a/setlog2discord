@@ -24,11 +24,11 @@
   "include": [
     "bot/**/*.ts",
     "lib/**/*.ts",
+    "tools/**/*.ts",
     "vitest.config.ts"
   ],
   "exclude": [
     "node_modules",
-    "captures",
-    "tools"
+    "captures"
   ]
 }

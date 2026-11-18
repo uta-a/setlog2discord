@@ -1,6 +1,8 @@
 /**
  * 実データでライブラリの復号を検証する統合テスト。
- * .secrets.*（gitignore 済み）と captures/direct の実キャプチャが揃っているときだけ走る。
+ * 旧アカウントの実データ（.secrets/old-account/、gitignore 済み）と captures/direct の
+ * 実キャプチャが揃っているときだけ走る。2026-11-18 にアカウントを切り替えたので、
+ * 検証には切り替え前のアカウントの鍵・クリップ・userId を使い続ける。
  * 無ければ skip（CI や他環境では走らない）。
  *
  * 流れ：パスフレーズ → 秘密鍵復元 → content key アンラップ → メディア復号 → mp4 確認。
@@ -18,10 +20,11 @@ import {
 } from "./crypto";
 
 const repo = fileURLToPath(new URL("../../", import.meta.url));
-const PASS = `${repo}.secrets.passphrase`;
-const BACKUP = `${repo}.secrets.keybackup.json`;
-const CLIP = `${repo}.secrets.clip.bin`;
-const SELF = "5947ea73-b26b-5abc-9f15-67122c722f24";
+const OLD = `${repo}.secrets/old-account/`;
+const PASS = `${OLD}passphrase`;
+const BACKUP = `${OLD}keybackup.json`;
+const CLIP = `${OLD}clip.bin`;
+const SELF = "5947ea73-b26b-5abc-9f15-67122c722f24"; // 旧アカウントの userId
 
 function findTodayCapture(): string | null {
   const dir = `${repo}captures/direct`;
