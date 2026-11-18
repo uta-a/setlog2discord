@@ -135,6 +135,52 @@
 - 復号に必要なのは (a) 端末内の秘密鍵、または (b) 鍵バックアップのパスフレーズ（PBKDF2-HMAC-SHA256 60 万回）
 - 帰結：動画は方式 A（BFF 中継）では取れない。A′（端末で復号してアップロード）が必要
 
+### 4.8 テキストチャット（受信・送信）
+
+動的解析で確定（2026-11-18、実 API で送受信を検証）。
+
+- **会話一覧**：`GET chat/conversations` → `{success, conversations[], lastEvaluatedKey}`（DM。collection とは別）
+- **参加者の鍵**：`GET chat/message/participantKeys?conversationId={id}` → `{success, participants[{userId, name, publicKey, kid, …}]}`（送信時の鍵ラップに使う。旧アカウントでは自分も含まれたが、2026-11-19 の今のアカウントでは**自分を含まなかった**。自分の `kid`・`publicKey` は `GET user/profile` から取る）
+- **メッセージ取得**：`GET chat/{conversationId}/messages?limit=40[&beforeTimestamp=<ms>]`。テキストは `contentType="text/plain"` で `envelope` を持ち `media` は無い
+- **送信**：`POST chat/{conversationId}/message`（単数 `message`）
+  ```json
+  { "type": "chat", "conversationId": "<id>", "messageId": "<uuid>", "uuid": "<uuid>",
+    "refreshesStaleKeys": true, "contentType": "text/plain",
+    "keys": [ { uid, kid, v, alg, saltB64, wrappedB64, senderKid, senderPublicKey } ],
+    "envelope": { v, alg: "CHACHA20-POLY1305", aadB64, combinedB64 } }
+  ```
+  応答：`{ success, messageId }`（200）
+- **暗号**：content key（ランダム32B）でテキストを ChaCha20-Poly1305 で封入し `envelope` に。`aadB64` は content info（`msg:enc:v1|conv:{convId}|msg:{msgId}|sender:{senderId}|type:text/plain`）の base64。content key を各参加者の公開鍵宛に X25519→HKDF→ChaCha20-Poly1305 でラップし `keys[]` に。実装は `lib/setlog/crypto.ts`（`encryptText`/`decryptText`）
+- フィクスチャ：実データにトークン/本文が絡むためコミットしない（`captures/` のみ）
+
+### 4.9 WebSocket（リアルタイム受信）
+
+静的解析（2026-11-18、`of1`/`n3`/`pl6`/`wh1`/`xi1` ほか。根拠は下記）と、Node から直接接続した実測（2026-11-18）で確認。
+
+- **接続**：`wss://ws.newchatapi.com/`、ヘッダーは `jwt-key` のみ（`x-api-key` 不要）、クエリなし。permessage-deflate なしでも接続できる（実測）。**スマホのアプリと同じトークンで 2 本目の接続を張っても弾かれない**（実測）
+- **購読は不要**：接続後に送るべきフレームは無い。クライアントが送る action は `typing` だけ（`wh1.java:74-110`）。接続するだけで、参加している会話・コレクションのイベントが届く（実測）
+- **ハートビート**：サーバーから 30 秒ごとに ping（WebSocket の制御フレーム）。ライブラリが pong を返せばよい。`ws` パッケージの `ping` イベントで 30 秒ごとに受け取れることを確認した（実測 2026-11-19、100 秒で 3 回）
+- **受信形式**：`{"action": "...", "data": {...}}`。主な action（`pl6.java:1531-1630`）：
+
+  | action | 中身 | 状態 |
+  | --- | --- | --- |
+  | `newMessage` | メッセージ本体。REST の messages と同じ形（`conversationId`/`messageId`/`senderId`/`messageType`/`type`/`timestamp`/`keys[]`/`contentType`、テキストは `envelope`、クリップは `media`） | 動的 |
+  | `messageUpdate` / `messageDeleted` | 編集（キャプション）／削除（`messageId`, `conversationId`） | 静的 |
+  | `newReaction` / `reactionRemoved` / `readReceipt` / `typing` | リアクション・既読・入力中 | 静的 |
+  | `newCollection` / `collectionJoined` / `collectionLeft` / `newConversation` 系 | 参加グループの変化（ID のみ） | 静的 |
+
+- **写真**（実測 2026-11-19）：`type=snap`、`contentType=image/jpeg`、`envelope=null`、`media` はクリップと同じ形（`mimeType=image/jpeg`、720×1280）。`keys[]` の自分宛エントリで content key を開き、`decryptMedia`（AAD の MIME は `image/jpeg`）で JPEG に戻る
+- **テキストとクリップは同じ `newMessage` で届く**（実測）。テキストは `type=chat`・`contentType=text/plain`、クリップは `type=collection`・`contentType=video/mp4`。今回のグループでは両者の `conversationId` が同じ値だった
+- **本体がそのまま載る**（実測）：他人のテキストは `decryptText` で復号でき、他人のクリップは `media.path` を CDN から取得して `decryptMedia` で mp4（1280×720、約 1.47MB）まで復号できた。`keys[]` は**自分宛の 1 件だけ**入っていた。撮影の `timestamp` から受信まで約 9 秒
+- **再送は無い**（静的・推測）：アプリは再接続のたびに REST で取り直している（`xi1.b`→`xi1.g`）。取りこぼしは `GET chat/{id}/messages` で埋める必要がある
+- **補完に使う REST の範囲**（実測 2026-11-18）：`GET chat/{id}/messages?limit=40` を**パラメータなしで叩くと当日分（11/18 の 4 件）しか返らなかった**（範囲の正確な定義は未確認）。`beforeTimestamp=<現在時刻 ms>` を付けると日付をまたいで新しい順に `limit` 件返る（`limit=5` で 5 件）。`beforeTimestamp` はその時刻ちょうどのメッセージも含んだ。`lastEvaluatedKey` は今回いつも null
+- **再接続**：アプリは `min(60s, 1s << min(n-1, 5))` のバックオフ（1→32 秒で頭打ち）。**close code `4403` はアカウントロック扱いで、再接続しない**（`n3.java` の `h()`、`of1.java:232-233`）
+- **自分の発言は自分の接続に流れない**（実測）：待ち受け中（13:50:03 接続）に自分がスマホから送ったテキスト（サーバー上の `timestamp` は 13:53:39）は、同じアカウントの別接続に届かなかった。REST の `GET chat/{id}/messages` には入っている。自分の発言・自分のクリップを拾うには REST が必要
+- **新着は同じアカウントの「最後に接続した 1 本」にだけ届く**（実測 2026-11-19）：Bot（01:49:46 に接続）には 01:49:59・01:51:36 の友達のテキストがリアルタイムで届き、その前（01:47:14）に張った記録用の接続には届かなかった。01:35 に 2 本張った確認では後の 1 本にも届かなかったが、その間にスマホのアプリがつなぎ直したと見れば合う。API Gateway の WebSocket で接続のたびに配信先を上書きする作りと見られる。配信先から外れた接続は切られず、ping も届き続けるので、クライアントからはその場で気づけない（close も通知も無い）。スマホでアプリを開くとアプリが配信先になり、Bot がつなぎ直すと Bot に戻る。REST には入っている
+- **15 分間の接続はサーバーから切られなかった**（実測。こちらから close 1000 で閉じた）
+- **トークンが不正なら接続時に HTTP 401**（実測。curl で Upgrade を送ると 401）。Node 組み込みの `WebSocket` では close 1006 しか見えず 401 と通信断を区別できない。ping も受け取れない。Bot では `ws` パッケージを使う（`unexpected-response` で状態コード、`ping` イベントで生存確認）
+- **未確認**：`messageUpdate` などの実際の形、それより長い接続の安定性
+
 ## 5. 判定
 
 | 判定項目 | 結果 |

@@ -1,0 +1,34 @@
+# setlog Discord Bot（ユーザー単位の systemd 版。rakko-server ではこちらを使う）。導入手順は docs/deploy.md。
+#
+# 置き場所：~/.config/systemd/user/setlog-bot.service
+# ログインユーザーのまま ~/vscode/discord/bots/setlog から動かす（sudo 不要）。ログアウト中も動かすには
+# `loginctl enable-linger` が要る。秘密情報（.env・鍵バックアップ・パスフレーズ・bot.config.json）は
+# 置き場所の中に権限 600 で置く（置き場所は 700）。
+
+[Unit]
+Description=setlog Discord Bot
+Documentation=file://%h/vscode/discord/bots/setlog/docs/deploy.md
+Wants=network-online.target
+After=network-online.target
+# 設定の誤りなどで起動直後に落ち続けるときは、10 分で 5 回までにして止める（setlog に接続を繰り返さないため）
+StartLimitIntervalSec=600
+StartLimitBurst=5
+
+[Service]
+Type=simple
+WorkingDirectory=%h/vscode/discord/bots/setlog
+Environment=NODE_ENV=production
+ExecStart=%h/vscode/discord/bots/setlog/node_modules/.bin/tsx --env-file=.env bot/main.ts
+# トークン失効（401）とアカウントロック（4403）では Bot はプロセスを残すので、再起動はされない
+Restart=on-failure
+RestartSec=30
+# SIGTERM で #bot-status に停止を通知してから終わる
+KillSignal=SIGTERM
+TimeoutStopSec=30
+# 作られるファイルは本人だけが読める
+UMask=0077
+NoNewPrivileges=yes
+MemoryMax=1G
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,56 @@
+# setlog Discord Bot（設計書11章・B5）。導入手順は docs/deploy.md。
+#
+# 置き場所：/etc/systemd/system/setlog-bot.service
+# 専用ユーザー setlog-bot で /opt/setlog-bot から動かす。秘密情報（.env.local・鍵バックアップ・
+# パスフレーズ・bot.config.json）は /opt/setlog-bot に権限 600 で置く。書き込むのは data/ だけ。
+
+[Unit]
+Description=setlog Discord Bot
+Documentation=file:///opt/setlog-bot/docs/deploy.md
+Wants=network-online.target
+After=network-online.target
+# 設定の誤りなどで起動直後に落ち続けるときは、10 分で 5 回までにして止める（setlog に接続を繰り返さないため）
+StartLimitIntervalSec=600
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=setlog-bot
+Group=setlog-bot
+WorkingDirectory=/opt/setlog-bot
+Environment=NODE_ENV=production
+ExecStart=/opt/setlog-bot/node_modules/.bin/tsx --env-file=/opt/setlog-bot/.env.local bot/main.ts
+# トークン失効（401）とアカウントロック（4403）では Bot はプロセスを残すので、再起動はされない
+Restart=on-failure
+RestartSec=30
+# SIGTERM で #bot-status に停止を通知してから終わる
+KillSignal=SIGTERM
+TimeoutStopSec=30
+
+# 作られるファイルは本人だけが読める
+UMask=0077
+
+# 書き込めるのは状態ストアだけにする
+ProtectSystem=strict
+ReadWritePaths=/opt/setlog-bot/data
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+NoNewPrivileges=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+CapabilityBoundingSet=
+SystemCallArchitectures=native
+MemoryMax=1G
+
+[Install]
+WantedBy=multi-user.target

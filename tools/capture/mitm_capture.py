@@ -16,6 +16,9 @@ captures/ は .gitignore で除外されているので、ここに実トーク�
                        部分一致。media/api/ws/execute-api をまとめて拾う
     SAVE_MEDIA_BYTES   "1" のとき media.* の本体バイト列も保存 (既定: 無効)
                        動画は E2EE 暗号文かつ巨大なので既定では保存しない
+
+WebSocket（ws.newchatapi.com）のフレームは captures/raw/ws.jsonl に
+1 フレーム 1 行で追記する（向き・時刻・本文。JSON ならパース済み）。
 """
 
 from __future__ import annotations
@@ -96,6 +99,34 @@ def load(loader):
     print(f"[capture] 保存先: {CAPTURE_DIR.resolve()}")
     print(f"[capture] 対象ホスト（部分一致）: {', '.join(HOSTS)}")
     print(f"[capture] media 本体バイト保存: {'ON' if SAVE_MEDIA_BYTES else 'OFF'}")
+
+
+def websocket_message(flow: http.HTTPFlow) -> None:
+    """WebSocket のフレームを ws.jsonl に追記する。ping/pong は mitmproxy が別扱いなので来ない。"""
+    host = flow.request.pretty_host
+    if not _is_target(host) or flow.websocket is None:
+        return
+    msg = flow.websocket.messages[-1]
+    raw = msg.content or b""
+    record = {
+        "capturedAt": datetime.now(timezone.utc).isoformat(),
+        "direction": "client->server" if msg.from_client else "server->client",
+        "host": host,
+        "isText": msg.is_text,
+        "bytes": len(raw),
+    }
+    if msg.is_text:
+        text = raw.decode("utf-8", errors="replace")
+        try:
+            record["json"] = json.loads(text)
+        except json.JSONDecodeError:
+            record["text"] = text
+    else:
+        record["hexHead"] = raw[:256].hex()
+    with (CAPTURE_DIR / "ws.jsonl").open("a", encoding="utf-8") as f:
+        f.write(json.dumps(record, ensure_ascii=False) + "\n")
+    arrow = "→" if msg.from_client else "←"
+    print(f"[ws] {arrow} {record['bytes']}B {(record.get('json') or record.get('text') or '')!s:.120}")
 
 
 def response(flow: http.HTTPFlow) -> None:

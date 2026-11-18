@@ -43,7 +43,7 @@
 
 `run-capture.sh` を動かしたまま、**下のシナリオ順に** setlog を手で操作する。各操作の後に `captures/raw/` に出たファイル名（サマリ行の末尾）を、下のチェックリストの「capture」欄に控える。
 
-操作の間隔はアプリ並みに。連打・自動化はしない（レート制限/bot 対策の観測が濁るし、アカウント停止リスク）。
+操作の間隔はアプリ並みに。連打・自動化はしない（レート制限/bot 対策の観測が濁るため）。
 
 ### シナリオ（6操作＋補助）
 
@@ -123,7 +123,7 @@ curl -s -o /dev/null -w '%{http_code}\n' "$API" -H "x-api-key: $XKEY" -H "jwt-ke
 ### その他
 
 - [ ] **19. `x-api-key` のローテーション有無**（アプリ更新で変わるか。今は定数記録で十分） — 結果: `____`
-- [ ] **20. WebSocket `wss://ws.newchatapi.com/` の必要性**（ポーリングで新着が取れるか） — 結果: `____`
+- [x] **20. WebSocket `wss://ws.newchatapi.com/` の必要性**（ポーリングで新着が取れるか） — 結果: `jwt-key` だけで直接接続でき、購読なしで `newMessage` にテキスト・クリップの本体が載って届く（約 9 秒）。リアルタイム受信は WebSocket、取りこぼしの補完は REST。詳細は [api.md 4.9](api.md)
 - [ ] **21. `account_locked` 以外の 403 の意味**（`auth/diagnostics` の `authMethod` と突き合わせ） — 結果: `____`
 
 ---
