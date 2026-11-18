@@ -15,7 +15,7 @@ setlog の友達の新着（2秒クリップとグループのテキストチャ
 
 **スコープ**
 
-- 友達のクリップの自動投稿（setlog → Discord）
+- 友達のクリップと写真の自動投稿（setlog → Discord）
 - 友達のテキストの転送（setlog → Discord）
 - 自分のテキストの送信（Discord → setlog）
 
@@ -136,6 +136,8 @@ setlog の友達の新着（2秒クリップとグループのテキストチャ
 3. `keys[]` の自分宛エントリで content key をアンラップする（`unwrapContentKey`）
 4. `media.path` を `https://media.newchatapi.com/` から取得し、`decryptMedia` で mp4 に戻す
 5. `#<グループ名>-clips` に投稿し、`messageId` と Discord のメッセージ ID を状態ストアに記録する
+
+写真（`type=snap`、`contentType=image/jpeg` など）も同じ手順で扱う。暗号と CDN の仕組みはクリップと同じで、同じカードで投稿する（2026-11-19 に追加）。状態ストアの種類の列は `clip`・`text` だけなので、写真は `clip` として記録する。
 
 失敗したとき：
 

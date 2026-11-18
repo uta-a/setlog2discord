@@ -90,6 +90,32 @@ describe("クリップのハンドラ", () => {
     expect(c.posts[0].authorName).toBe("メンバー");
   });
 
+  it("写真も復号して、拡張子を合わせて同じカードで投稿する", async () => {
+    const me = keypair();
+    const JPG = Buffer.concat([JPEG, randomBytes(16)]);
+    const { clip, bytes } = makeEncryptedClip(me, JPG, {});
+    // 写真は contentType・media.mimeType が image/jpeg。暗号の AAD も image/jpeg で作る
+    const photo = makeEncryptedClip(me, JPG, { contentType: "image/jpeg", media: { ...clip.media, mimeType: "image/jpeg" } }, "image/jpeg");
+    void bytes;
+    const posts: { name: string; size: number }[] = [];
+    const h = createClipHandler({
+      keyring: new Map([["kid-me", me.priv]]),
+      myUserId: "u-me",
+      fetchMedia: async () => photo.bytes,
+      post: async (_c, p) => {
+        if (p.layout !== "clip") throw new Error("x");
+        posts.push({ name: p.video.name, size: p.video.data.length });
+        return "d";
+      },
+      profile: async () => ({ name: "たろう" }),
+      avatar: async () => undefined,
+      notify: async () => {},
+    });
+    expect((await h({ kind: "photo", group, message: photo.clip as unknown as MessageHead }))?.result).toBe("posted");
+    expect(posts[0].name).toMatch(/\.jpg$/);
+    expect(posts[0].size).toBe(JPG.length);
+  });
+
   it("削除済みは投稿せず skipped", async () => {
     const { run, posts } = setup({}, { isDeleted: true });
     expect(await run()).toEqual({ result: "skipped" });

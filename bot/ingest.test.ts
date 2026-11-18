@@ -68,9 +68,17 @@ describe("取り込み（WebSocket）", () => {
     const { ingest, seen } = setup();
     ingest.onFrame(frame(msg("m1", { conversationId: "solo" })));
     ingest.onFrame(frame(msg("m2", { senderId: "u-me" })));
-    ingest.onFrame(frame(msg("m3", { contentType: "image/jpeg" })));
+    ingest.onFrame(frame(msg("m3", { contentType: "audio/aac" })));
     await ingest.idle();
     expect(seen).toEqual([]);
+  });
+
+  it("写真は photo としてハンドラに渡し、状態ストアには clip として記録する（表の種類は clip・text だけ）", async () => {
+    const { ingest, seen, store } = setup();
+    ingest.onFrame(frame(msg("p1", { contentType: "image/jpeg", type: "snap" })));
+    await ingest.idle();
+    expect(seen.map((m) => m.kind)).toEqual(["photo"]);
+    expect(store.hasProcessedKind("conv-1", "clip")).toBe(true);
   });
 
   it("同じ messageId は 1 回しか処理しない", async () => {

@@ -169,6 +169,7 @@
   | `newReaction` / `reactionRemoved` / `readReceipt` / `typing` | リアクション・既読・入力中 | 静的 |
   | `newCollection` / `collectionJoined` / `collectionLeft` / `newConversation` 系 | 参加グループの変化（ID のみ） | 静的 |
 
+- **写真**（実測 2026-11-19）：`type=snap`、`contentType=image/jpeg`、`envelope=null`、`media` はクリップと同じ形（`mimeType=image/jpeg`、720×1280）。`keys[]` の自分宛エントリで content key を開き、`decryptMedia`（AAD の MIME は `image/jpeg`）で JPEG に戻る
 - **テキストとクリップは同じ `newMessage` で届く**（実測）。テキストは `type=chat`・`contentType=text/plain`、クリップは `type=collection`・`contentType=video/mp4`。今回のグループでは両者の `conversationId` が同じ値だった
 - **本体がそのまま載る**（実測）：他人のテキストは `decryptText` で復号でき、他人のクリップは `media.path` を CDN から取得して `decryptMedia` で mp4（1280×720、約 1.47MB）まで復号できた。`keys[]` は**自分宛の 1 件だけ**入っていた。撮影の `timestamp` から受信まで約 9 秒
 - **再送は無い**（静的・推測）：アプリは再接続のたびに REST で取り直している（`xi1.b`→`xi1.g`）。取りこぼしは `GET chat/{id}/messages` で埋める必要がある

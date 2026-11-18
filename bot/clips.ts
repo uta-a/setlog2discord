@@ -1,5 +1,6 @@
 /**
- * クリップの投稿（設計書7.1）。取り込み（ingest）から clip を受け取り、復号して clips チャンネルに投稿する。
+ * クリップと写真の投稿（設計書7.1）。取り込み（ingest）から clip・photo を受け取り、復号して clips チャンネルに投稿する。
+ * 写真（type=snap、image/jpeg など）も暗号と CDN の仕組みはクリップと同じ（2026-11-19 実測）。
  *
  * 記録する失敗（failed で記録して通知。再試行しても変わらない）：
  *   形が違う、自分宛の鍵が無い・kid 不一致・復号できない、大きすぎる、CDN 以外を指す path
@@ -51,12 +52,14 @@ export type ClipHandler = ((m: IncomingMessage) => Promise<HandlerResult>) & {
 
 export const clipNonce = (messageId: string) => makeNonce("clip", messageId);
 
-function fileName(ts: number, messageId: string): string {
+const EXT: Record<string, string> = { "video/mp4": "mp4", "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "image/gif": "gif", "image/heic": "heic" };
+
+function fileName(ts: number, messageId: string, mime: string): string {
   const w = new Date(ts + 9 * 60 * 60 * 1000);
   const p = (n: number) => String(n).padStart(2, "0");
   const stamp = `${w.getUTCFullYear()}${p(w.getUTCMonth() + 1)}${p(w.getUTCDate())}-${p(w.getUTCHours())}${p(w.getUTCMinutes())}`;
   const safeId = short(messageId).replace(/[^A-Za-z0-9-]/g, "_");
-  return `setlog-${stamp}-${safeId}.mp4`;
+  return `setlog-${stamp}-${safeId}.${EXT[mime] ?? "bin"}`;
 }
 
 export function createClipHandler(deps: ClipDeps): ClipHandler {
@@ -77,16 +80,17 @@ export function createClipHandler(deps: ClipDeps): ClipHandler {
 
   const handler = async (m: IncomingMessage): Promise<HandlerResult> => {
     const id = m.message.messageId;
+    const what = m.kind === "photo" ? "写真" : "クリップ";
     const where = `${m.group.name} msg=${short(id)}`;
     // 削除済みは本体の形が崩れていることがあるので、厳密な検証より先に見る
     if ((m.message as { isDeleted?: unknown }).isDeleted === true) {
-      log.info(`削除済みのクリップを飛ばす（${where}）`);
+      log.info(`削除済みの${what}を飛ばす（${where}）`);
       return out.done(id, { result: "skipped" });
     }
     const parsed = ClipPayloadSchema.safeParse(m.message);
     if (!parsed.success) {
       const keys = parsed.error.issues.map((i) => i.path.join(".") || "(root)").join(", ");
-      return out.failed(id, `クリップの形が想定と違う（${where}）: ${keys}`, `clip-shape:${keys}`);
+      return out.failed(id, `${what}の形が想定と違う（${where}）: ${keys}`, `clip-shape:${keys}`);
     }
     const clip = parsed.data;
 
@@ -95,8 +99,8 @@ export function createClipHandler(deps: ClipDeps): ClipHandler {
       const bytes = await fetchWithRetry(clip.media.path);
       mp4 = decryptClip(clip, bytes, deps.keyring, deps.myUserId);
     } catch (e) {
-      if (e instanceof ClipDecryptError) return out.failed(id, `クリップを開けない（${where}）: ${e.message}`);
-      if (e instanceof MediaFetchError) return out.transient(id, `クリップの取得に失敗（${where}）: ${e.message}`);
+      if (e instanceof ClipDecryptError) return out.failed(id, `${what}を開けない（${where}）: ${e.message}`);
+      if (e instanceof MediaFetchError) return out.transient(id, `${what}の取得に失敗（${where}）: ${e.message}`);
       throw e;
     }
 
@@ -110,15 +114,15 @@ export function createClipHandler(deps: ClipDeps): ClipHandler {
           authorName: author.name,
           color: author.color,
           avatar: author.avatar,
-          video: { name: fileName(clip.timestamp, id), data: mp4 },
+          video: { name: fileName(clip.timestamp, id, clip.media.mimeType), data: mp4 },
         },
         clipNonce(id),
       );
-      log.info(`クリップを投稿（${where}）`);
+      log.info(`${what}を投稿（${where}）`);
       return out.done(id, { result: "posted", discordMessageId });
     } catch (e) {
-      if (e instanceof AttachmentTooLargeError) return out.failed(id, `クリップが Discord の添付の上限を超えた（${where}）`);
-      return out.transient(id, `クリップの投稿に失敗（${where}）: ${e instanceof Error ? e.message : String(e)}`);
+      if (e instanceof AttachmentTooLargeError) return out.failed(id, `${what}が Discord の添付の上限を超えた（${where}）`);
+      return out.transient(id, `${what}の投稿に失敗（${where}）: ${e instanceof Error ? e.message : String(e)}`);
     }
   };
   return Object.assign(handler, { hasPending: out.hasPending });

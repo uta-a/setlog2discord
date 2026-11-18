@@ -62,8 +62,10 @@ export function parseFrame(text: string): Frame {
   return { kind: "message", message: msg.data };
 }
 
-export function messageKind(m: { contentType: string }): "clip" | "text" | "other" {
+/** clip：2 秒クリップ（video/mp4）、photo：写真（type=snap、image/jpeg など。復号の仕組みはクリップと同じ）。 */
+export function messageKind(m: { contentType: string }): "clip" | "photo" | "text" | "other" {
   if (m.contentType === "video/mp4") return "clip";
+  if (m.contentType.startsWith("image/")) return "photo";
   if (m.contentType === "text/plain") return "text";
   return "other";
 }

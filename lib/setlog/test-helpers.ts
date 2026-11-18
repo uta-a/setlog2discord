@@ -9,7 +9,7 @@ export function keypair(): { priv: KeyObject; pubB64: string } {
 }
 
 /** 友達（sender）が自分（me, kid-me）宛に暗号化したクリップを作る。 */
-export function makeEncryptedClip(me: { pubB64: string }, mp4: Buffer, over: Partial<ClipPayload> = {}) {
+export function makeEncryptedClip(me: { pubB64: string }, mp4: Buffer, over: Partial<ClipPayload> = {}, mime = "video/mp4") {
   const sender = keypair();
   const base = {
     messageId: "msg-1",
@@ -21,7 +21,7 @@ export function makeEncryptedClip(me: { pubB64: string }, mp4: Buffer, over: Par
     media: { path: "ap/uploads/u-friend/1-abc", mimeType: "video/mp4" },
   };
   const contentKey = randomBytes(32);
-  const info = contentInfo(base.conversationId, base.messageId, base.senderId, "video/mp4", 1);
+  const info = contentInfo(base.conversationId, base.messageId, base.senderId, mime, 1);
   const bytes = aeadSeal(contentKey, mp4, Buffer.from(info, "utf-8"), randomBytes(12));
   const entry = wrapContentKey(
     contentKey,

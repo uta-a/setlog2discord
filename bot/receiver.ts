@@ -60,7 +60,7 @@ export function startReceiver(
     store,
     myUserId: config.setlog.userId,
     groups: config.groups,
-    handler: (m) => (m.kind === "clip" ? clipHandler(m) : textHandler(m)),
+    handler: (m) => (m.kind === "text" ? textHandler(m) : clipHandler(m)),
     notify,
     fetchMessages: (conv, o) => setlog.getConversationMessages(conv, o),
     startedAt: opts.startedAt,

@@ -20,7 +20,9 @@ import { log } from "./log";
 import type { Notifier } from "./status";
 import type { MessageKind, ProcessResult, StateStore } from "./state";
 
-export type IncomingMessage = { kind: MessageKind; group: GroupConfig; message: MessageHead };
+/** photo は状態ストアには clip として記録する（表の種類の列は clip・text だけ）。 */
+export type IncomingKind = MessageKind | "photo";
+export type IncomingMessage = { kind: IncomingKind; group: GroupConfig; message: MessageHead };
 
 export type HandlerResult = { result: ProcessResult; discordMessageId?: string } | undefined;
 export type MessageHandler = (m: IncomingMessage) => Promise<HandlerResult>;
@@ -79,7 +81,7 @@ export function createIngest(opts: IngestOptions): Ingest {
       opts.store.recordProcessed({
         messageId: id,
         conversationId: m.message.conversationId,
-        kind: m.kind,
+        kind: m.kind === "text" ? "text" : "clip",
         timestamp: m.message.timestamp,
         result: r.result,
         discordMessageId: r.discordMessageId,

@@ -59,6 +59,8 @@ describe("messageKind", () => {
   it("contentType で clip / text / other に分ける", () => {
     expect(messageKind({ contentType: "video/mp4" })).toBe("clip");
     expect(messageKind({ contentType: "text/plain" })).toBe("text");
-    expect(messageKind({ contentType: "image/jpeg" })).toBe("other");
+    expect(messageKind({ contentType: "image/jpeg" })).toBe("photo");
+    expect(messageKind({ contentType: "image/png" })).toBe("photo");
+    expect(messageKind({ contentType: "audio/aac" })).toBe("other");
   });
 });
