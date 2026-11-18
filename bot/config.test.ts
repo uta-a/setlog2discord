@@ -56,6 +56,22 @@ describe("loadConfig", () => {
     const f = { ...file, groups: [{ ...file.groups[0], chatChannelId: file.statusChannelId }] };
     expect(() => loadConfig(env, JSON.stringify(f))).toThrow(/100000000000000003/);
   });
+
+  it("同じグループならクリップとチャットを同じチャンネルにできる", () => {
+    const f = { ...file, groups: [{ ...file.groups[0], chatChannelId: file.groups[0].clipsChannelId }] };
+    expect(loadConfig(env, JSON.stringify(f)).groups[0].chatChannelId).toBe("100000000000000004");
+  });
+
+  it("別のグループと同じチャンネルを使うと失敗する", () => {
+    const other = {
+      name: "別",
+      conversationId: "conv-2",
+      clipsChannelId: "100000000000000006",
+      chatChannelId: file.groups[0].clipsChannelId,
+    };
+    const f = { ...file, groups: [file.groups[0], other] };
+    expect(() => loadConfig(env, JSON.stringify(f))).toThrow(/100000000000000004/);
+  });
 });
 
 describe("configuredChannels", () => {
@@ -65,6 +81,14 @@ describe("configuredChannels", () => {
       "100000000000000003",
       "100000000000000004",
       "100000000000000005",
+    ]);
+  });
+
+  it("クリップとチャットが同じチャンネルなら 1 つにまとめる", () => {
+    const f = { ...file, groups: [{ ...file.groups[0], chatChannelId: file.groups[0].clipsChannelId }] };
+    expect(configuredChannels(loadConfig(env, JSON.stringify(f)))).toEqual([
+      { id: "100000000000000003", purpose: "bot-status" },
+      { id: "100000000000000004", purpose: "友達 のクリップとチャット" },
     ]);
   });
 });

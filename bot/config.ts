@@ -70,7 +70,8 @@ export function loadConfig(env: Record<string, string | undefined>, fileText: st
     chatConversationId: g.chatConversationId ?? g.conversationId,
   }));
 
-  const channelIds = groups.flatMap((g) => [g.clipsChannelId, g.chatChannelId]);
+  // 同じグループのクリップとチャットは同じチャンネルにしてよい。status や別グループとの共有は不可
+  const channelIds = groups.flatMap((g) => [...new Set([g.clipsChannelId, g.chatChannelId])]);
   const all = [file.data.statusChannelId, ...channelIds];
   const dup = all.find((id, i) => all.indexOf(id) !== i);
   if (dup) throw new ConfigError(`同じチャンネル ID が複数の用途に使われている: ${dup}`);
@@ -82,9 +83,13 @@ export function loadConfig(env: Record<string, string | undefined>, fileText: st
 export function configuredChannels(config: BotConfig): { id: string; purpose: string }[] {
   return [
     { id: config.statusChannelId, purpose: "bot-status" },
-    ...config.groups.flatMap((g) => [
-      { id: g.clipsChannelId, purpose: `${g.name} のクリップ` },
-      { id: g.chatChannelId, purpose: `${g.name} のチャット` },
-    ]),
+    ...config.groups.flatMap((g) =>
+      g.clipsChannelId === g.chatChannelId
+        ? [{ id: g.clipsChannelId, purpose: `${g.name} のクリップとチャット` }]
+        : [
+            { id: g.clipsChannelId, purpose: `${g.name} のクリップ` },
+            { id: g.chatChannelId, purpose: `${g.name} のチャット` },
+          ],
+    ),
   ];
 }

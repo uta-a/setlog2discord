@@ -108,7 +108,7 @@ setlog の友達の新着（2秒クリップとグループのテキストチャ
 | `#<グループ名>-chat` | 友達のテキストの転送と、自分の返信 |
 | `#bot-status` | 起動・停止、トークン失効、復号失敗、API 仕様変更の通知 |
 
-グループ（setlog の `conversationId`）とチャンネルの対応は設定ファイル（`bot.config.json`）で持つ。Bot はチャンネルを自動では作らない。今回のグループではクリップ（collection）とチャット（chat）の `conversationId` が同じ値だったが、別の値のグループがあれば設定で両方を書けるようにする。
+グループ（setlog の `conversationId`）とチャンネルの対応は設定ファイル（`bot.config.json`）で持つ。Bot はチャンネルを自動では作らない。同じグループなら `clipsChannelId` と `chatChannelId` を同じチャンネルにしてもよい（クリップとテキストが 1 つのチャンネルに流れる）。`#bot-status` や別グループとの共有はできない。今回のグループではクリップ（collection）とチャット（chat）の `conversationId` が同じ値だったが、別の値のグループがあれば設定で両方を書けるようにする。
 
 **投稿の形**
 
