@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { canUseCommand, channelProblems, guildsToLeave } from "./guard";
+import { canUseCommand, channelProblems, guildsToLeave, sendTarget } from "./guard";
 
 const G = "100000000000000001";
 const ok = { guildId: G, isText: true, canSend: true };
@@ -43,5 +43,27 @@ describe("canUseCommand", () => {
     expect(canUseCommand({ guildId: G, userId: "999" }, cfg)).toBe(false);
     expect(canUseCommand({ guildId: "200", userId: "100000000000000002" }, cfg)).toBe(false);
     expect(canUseCommand({ guildId: null, userId: "100000000000000002" }, cfg)).toBe(false);
+  });
+});
+
+describe("sendTarget", () => {
+  const groups = [
+    { name: "a", chatChannelId: "300", chatConversationId: "conv-a" },
+    { name: "b", chatChannelId: "400", chatConversationId: "conv-b" },
+  ];
+  const cfg = { guildId: G, ownerUserId: "100000000000000002", groups };
+  const base = { guildId: G, channelId: "300", authorId: "100000000000000002", isBot: false, isWebhook: false, isSystem: false };
+  it("設定した guild の chat チャンネルでの、自分の発言だけを送る", () => {
+    expect(sendTarget(base, cfg)?.chatConversationId).toBe("conv-a");
+    expect(sendTarget({ ...base, channelId: "400" }, cfg)?.chatConversationId).toBe("conv-b");
+  });
+  it("他人・Bot・Webhook・システムの発言、他のチャンネル・guild・DM は送らない", () => {
+    expect(sendTarget({ ...base, authorId: "999" }, cfg)).toBeUndefined();
+    expect(sendTarget({ ...base, isBot: true }, cfg)).toBeUndefined();
+    expect(sendTarget({ ...base, isWebhook: true }, cfg)).toBeUndefined();
+    expect(sendTarget({ ...base, isSystem: true }, cfg)).toBeUndefined();
+    expect(sendTarget({ ...base, channelId: "500" }, cfg)).toBeUndefined();
+    expect(sendTarget({ ...base, guildId: "200" }, cfg)).toBeUndefined();
+    expect(sendTarget({ ...base, guildId: null }, cfg)).toBeUndefined();
   });
 });

@@ -34,6 +34,9 @@ export type StateStore = {
   firstProcessedTimestamp(conversationId: string, kind: MessageKind): number | null;
   /** 投稿済みの setlog のメッセージに対応する Discord のメッセージ ID（返信の組み立てに使う）。 */
   discordMessageIdOf(messageId: string): string | undefined;
+  /** Discord から setlog に送った発言を記録する（同じ Discord の発言の 2 回目は無視）。 */
+  recordSent(r: { discordMessageId: string; setlogMessageId: string; conversationId: string }): void;
+  sentMessageIdOf(discordMessageId: string): string | undefined;
   close(): void;
 };
 
@@ -78,6 +81,10 @@ export function openState(path: string): StateStore {
   const selectCursor = db.prepare("SELECT last_timestamp FROM cursors WHERE conversation_id = ?");
   const selectKind = db.prepare("SELECT 1 FROM processed_messages WHERE conversation_id = ? AND kind = ? LIMIT 1");
   const selectFirst = db.prepare("SELECT MIN(timestamp) AS first FROM processed_messages WHERE conversation_id = ? AND kind = ?");
+  const insertSent = db.prepare(
+    `INSERT OR IGNORE INTO sent_messages (discord_message_id, setlog_message_id, conversation_id, sent_at) VALUES (?, ?, ?, ?)`,
+  );
+  const selectSent = db.prepare("SELECT setlog_message_id FROM sent_messages WHERE discord_message_id = ?");
   const selectDiscordId = db.prepare(
     "SELECT discord_message_id FROM processed_messages WHERE message_id = ? AND result = 'posted'",
   );
@@ -115,6 +122,13 @@ export function openState(path: string): StateStore {
     discordMessageIdOf(messageId) {
       const row = selectDiscordId.get(messageId) as { discord_message_id: string | null } | undefined;
       return row?.discord_message_id ?? undefined;
+    },
+    recordSent(r) {
+      insertSent.run(r.discordMessageId, r.setlogMessageId, r.conversationId, Date.now());
+    },
+    sentMessageIdOf(discordMessageId) {
+      const row = selectSent.get(discordMessageId) as { setlog_message_id: string } | undefined;
+      return row?.setlog_message_id;
     },
     close: () => db.close(),
   };

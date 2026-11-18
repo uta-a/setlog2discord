@@ -43,3 +43,17 @@ export function canUseCommand(
 ): boolean {
   return who.guildId === config.guildId && who.userId === config.ownerUserId;
 }
+
+/**
+ * Discord の発言を setlog に送るなら、その送り先のグループを返す（設計書7.3。友達に見える書き込みなので厳しく絞る）。
+ * 送るのは、設定した guild の chat チャンネルでの、設定した自分のユーザーの発言だけ。
+ * Bot（自分自身の投稿を含む）・Webhook・システムメッセージ・DM は送らない。
+ */
+export function sendTarget<G extends { chatChannelId: string }>(
+  m: { guildId: string | null; channelId: string; authorId: string; isBot: boolean; isWebhook: boolean; isSystem: boolean },
+  config: { guildId: string; ownerUserId: string; groups: G[] },
+): G | undefined {
+  if (m.guildId !== config.guildId || m.authorId !== config.ownerUserId) return undefined;
+  if (m.isBot || m.isWebhook || m.isSystem) return undefined;
+  return config.groups.find((g) => g.chatChannelId === m.channelId);
+}

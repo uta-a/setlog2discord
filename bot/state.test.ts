@@ -77,4 +77,13 @@ describe("状態ストア", () => {
     expect(s.discordMessageIdOf("none")).toBeUndefined();
     s.close();
   });
+
+  it("Discord から送った発言と setlog の messageId を記録する（同じ発言の 2 回目は無視）", () => {
+    const s = openState(":memory:");
+    expect(s.sentMessageIdOf("d1")).toBeUndefined();
+    s.recordSent({ discordMessageId: "d1", setlogMessageId: "m1", conversationId: "c1" });
+    s.recordSent({ discordMessageId: "d1", setlogMessageId: "m2", conversationId: "c1" });
+    expect(s.sentMessageIdOf("d1")).toBe("m1");
+    s.close();
+  });
 });

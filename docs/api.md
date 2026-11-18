@@ -140,7 +140,7 @@
 動的解析で確定（2026-11-18、実 API で送受信を検証）。
 
 - **会話一覧**：`GET chat/conversations` → `{success, conversations[], lastEvaluatedKey}`（DM。collection とは別）
-- **参加者の鍵**：`GET chat/message/participantKeys?conversationId={id}` → `{success, participants[{userId, name, publicKey, kid, …}]}`（送信時の鍵ラップに使う。自分も含まれる）
+- **参加者の鍵**：`GET chat/message/participantKeys?conversationId={id}` → `{success, participants[{userId, name, publicKey, kid, …}]}`（送信時の鍵ラップに使う。旧アカウントでは自分も含まれたが、2026-11-19 の今のアカウントでは**自分を含まなかった**。自分の `kid`・`publicKey` は `GET user/profile` から取る）
 - **メッセージ取得**：`GET chat/{conversationId}/messages?limit=40[&beforeTimestamp=<ms>]`。テキストは `contentType="text/plain"` で `envelope` を持ち `media` は無い
 - **送信**：`POST chat/{conversationId}/message`（単数 `message`）
   ```json

@@ -28,7 +28,8 @@ import {
 } from "discord.js";
 import { AttachmentTooLargeError, type PostEmbed } from "./posting";
 import { ConfigError, configuredChannels, loadConfig, type BotConfig } from "./config";
-import { canUseCommand, channelProblems, guildsToLeave, type ChannelInfo } from "./guard";
+import { canUseCommand, channelProblems, guildsToLeave, sendTarget, type ChannelInfo } from "./guard";
+import { SendError } from "./sender";
 import { loadKeyring } from "./keys";
 import { log } from "./log";
 import { startReceiver, type Receiver } from "./receiver";
@@ -59,6 +60,8 @@ async function channelInfo(client: Client, id: string): Promise<ChannelInfo | nu
         PermissionFlagsBits.SendMessages,
         PermissionFlagsBits.AttachFiles,
         PermissionFlagsBits.EmbedLinks,
+        // 送れなかったときに元の発言へ返信するため
+        PermissionFlagsBits.ReadMessageHistory,
       ]);
     }
     return { guildId, isText, canSend };
@@ -149,8 +152,49 @@ async function main(): Promise<void> {
   const keyring = loadKeyring(process.env);
   log.info(`鍵を復元（${keyring.size} 件）`);
   let receiver: Receiver | null = null;
-  const client = new Client({ intents: [GatewayIntentBits.Guilds] });
+  // 発言の本文を読むので MessageContent が要る（Developer Portal で有効にしておく。設計書6章）
+  const client = new Client({
+    intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent],
+  });
   const notify = createNotifier(client, config.statusChannelId);
+
+  // Discord → setlog（B4）。送るのは chat チャンネルでの自分の発言だけ。失敗したときだけ返信で知らせる
+  client.on(Events.MessageCreate, async (msg) => {
+    const group = sendTarget(
+      {
+        guildId: msg.guildId,
+        channelId: msg.channelId,
+        authorId: msg.author.id,
+        isBot: msg.author.bot,
+        isWebhook: msg.webhookId !== null,
+        isSystem: msg.system,
+      },
+      config,
+    );
+    if (!group) return;
+    const fail = (reason: string) =>
+      msg
+        .reply({ content: `送れなかった：${reason}`, allowedMentions: { parse: [], repliedUser: false } })
+        .catch((e) => log.warn(`失敗の返信に失敗: ${e instanceof Error ? e.message : String(e)}`));
+    if (msg.attachments.size > 0 || msg.stickers.size > 0) {
+      await fail("テキストだけ送れる（添付・スタンプは送らない）");
+      return;
+    }
+    if (!receiver) {
+      await fail("まだ起動の途中");
+      return;
+    }
+    try {
+      // メンションは <@id> ではなく表示名にして送る
+      await receiver.sendText(group.chatConversationId, msg.cleanContent, msg.id);
+    } catch (e) {
+      if (e instanceof SendError) await fail(e.message);
+      else {
+        log.error(`送信で想定外のエラー: ${e instanceof Error ? e.message : String(e)}`);
+        await fail("想定外のエラー");
+      }
+    }
+  });
 
   client.on(Events.InteractionCreate, async (interaction) => {
     if (!interaction.isChatInputCommand() || interaction.commandName !== RECONNECT_COMMAND.name) return;
