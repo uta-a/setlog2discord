@@ -1,0 +1,101 @@
+/**
+ * 状態ストア（設計書8章）。node:sqlite で 1 ファイル（既定 data/state.sqlite）に持つ。
+ *
+ * - processed_messages：処理した setlog のメッセージ。未処理かどうかは messageId だけで判定する（設計書4章）
+ * - sent_messages：Discord から送った発言と setlog の messageId の対応（B4 で使う）
+ * - cursors：会話ごとの最後に処理した timestamp。REST 補完の下限を決めるのにだけ使う
+ *
+ * メッセージ本文は保存しない。
+ */
+import { mkdirSync } from "node:fs";
+import { dirname } from "node:path";
+import { DatabaseSync } from "node:sqlite";
+
+export type MessageKind = "clip" | "text";
+export type ProcessResult = "posted" | "skipped" | "failed";
+
+export type ProcessedRecord = {
+  messageId: string;
+  conversationId: string;
+  kind: MessageKind;
+  timestamp: number;
+  result: ProcessResult;
+  discordMessageId?: string;
+};
+
+export type StateStore = {
+  isProcessed(messageId: string): boolean;
+  /** 記録と cursor の更新を 1 トランザクションで行う。同じ messageId の 2 回目は無視する。 */
+  recordProcessed(r: ProcessedRecord): void;
+  getCursor(conversationId: string): number | null;
+  close(): void;
+};
+
+const SCHEMA = `
+CREATE TABLE IF NOT EXISTS processed_messages (
+  message_id         TEXT PRIMARY KEY,
+  conversation_id    TEXT NOT NULL,
+  kind               TEXT NOT NULL CHECK (kind IN ('clip', 'text')),
+  timestamp          INTEGER NOT NULL,
+  discord_message_id TEXT,
+  result             TEXT NOT NULL CHECK (result IN ('posted', 'skipped', 'failed')),
+  processed_at       INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS sent_messages (
+  discord_message_id TEXT PRIMARY KEY,
+  setlog_message_id  TEXT NOT NULL,
+  conversation_id    TEXT NOT NULL,
+  sent_at            INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS cursors (
+  conversation_id TEXT PRIMARY KEY,
+  last_timestamp  INTEGER NOT NULL
+);
+`;
+
+export function openState(path: string): StateStore {
+  if (path !== ":memory:") mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+  const db = new DatabaseSync(path);
+  db.exec("PRAGMA journal_mode = WAL;");
+  db.exec(SCHEMA);
+
+  const selectProcessed = db.prepare("SELECT 1 FROM processed_messages WHERE message_id = ?");
+  const insertProcessed = db.prepare(
+    `INSERT OR IGNORE INTO processed_messages
+       (message_id, conversation_id, kind, timestamp, discord_message_id, result, processed_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+  );
+  const upsertCursor = db.prepare(
+    `INSERT INTO cursors (conversation_id, last_timestamp) VALUES (?, ?)
+     ON CONFLICT (conversation_id) DO UPDATE SET last_timestamp = MAX(last_timestamp, excluded.last_timestamp)`,
+  );
+  const selectCursor = db.prepare("SELECT last_timestamp FROM cursors WHERE conversation_id = ?");
+
+  return {
+    isProcessed: (messageId) => selectProcessed.get(messageId) !== undefined,
+    recordProcessed(r) {
+      db.exec("BEGIN");
+      try {
+        insertProcessed.run(
+          r.messageId,
+          r.conversationId,
+          r.kind,
+          r.timestamp,
+          r.discordMessageId ?? null,
+          r.result,
+          Date.now(),
+        );
+        upsertCursor.run(r.conversationId, r.timestamp);
+        db.exec("COMMIT");
+      } catch (e) {
+        db.exec("ROLLBACK");
+        throw e;
+      }
+    },
+    getCursor(conversationId) {
+      const row = selectCursor.get(conversationId) as { last_timestamp: number } | undefined;
+      return row ? Number(row.last_timestamp) : null;
+    },
+    close: () => db.close(),
+  };
+}
