@@ -5,6 +5,7 @@
  * - サーバーは 30 秒ごとに ping を送る。pingTimeoutMs（既定 90 秒）ping もフレームも来なければ切って張り直す
  * - 再接続はアプリと同じバックオフ（1, 2, 4, … 32 秒で頭打ち）。接続が minStableMs 続いてから切れた場合だけ
  *   回数を戻す（つないですぐ切られる状態で 1 秒ごとに叩き続けないため）
+ * - recycleMs（既定 5 分）ごとに、こちらから閉じてすぐつなぎ直す（setlog の配信先から外れても戻るため）
  * - ハンドシェイクの応答が handshakeTimeoutMs（既定 30 秒）返らなければ、あきらめて張り直す
  * - 接続時の HTTP 401（トークン失効）と close code 4403（アカウントロック）は再接続せず onFatal を呼ぶ
  * - 切れたまま downNotifyMs（既定 5 分）たったら onDownTooLong、その後つながったら onRecovered
@@ -37,6 +38,12 @@ export type SocketOptions = {
   handshakeTimeoutMs?: number;
   /** n 回目（1 始まり）の再接続までの待ち時間。 */
   backoffMs?: (n: number) => number;
+  /**
+   * つながってからこの時間がたったら、こちらから閉じてすぐつなぎ直す（既定 5 分。0 で無効）。
+   * setlog は 1 アカウントにつき 1 本の接続にしか新着を送らず、スマホでアプリを開くとそちらに移り、
+   * Bot の接続は切られないまま届かなくなる（api.md 4.9、2026-11-19 実測）。つなぎ直して配信先に戻る。
+   */
+  recycleMs?: number;
 };
 
 /** アプリと同じ min(60s, 1s << min(n-1, 5))。 */
@@ -59,6 +66,8 @@ export function startSetlogSocket(opts: SocketOptions, h: SocketHandlers): Setlo
   let downSince: number | null = Date.now();
   let notifiedDown = false;
   let reconnectTimer: NodeJS.Timeout | null = null;
+  let recycleTimer: NodeJS.Timeout | null = null;
+  const recycleMs = opts.recycleMs ?? 5 * 60_000;
 
   const watchdog = setInterval(() => {
     const now = Date.now();
@@ -87,12 +96,22 @@ export function startSetlogSocket(opts: SocketOptions, h: SocketHandlers): Setlo
     });
     ws = socket;
     let down = false;
+    let recycling = false;
 
     /** 1 本のソケットにつき 1 回だけ、再接続を予約する。 */
     const onDown = (why: string) => {
       if (down) return;
       down = true;
       if (ws === socket) ws = null;
+      if (recycleTimer) clearTimeout(recycleTimer);
+      recycleTimer = null;
+      if (recycling && !stopped) {
+        // 定期のつなぎ直し：失敗ではないので、待たずに・回数を数えずにつなぐ
+        openedAt = null;
+        failures = 0;
+        connect();
+        return;
+      }
       const stable = openedAt !== null && Date.now() - openedAt >= minStableMs;
       openedAt = null;
       if (stopped) return;
@@ -122,6 +141,15 @@ export function startSetlogSocket(opts: SocketOptions, h: SocketHandlers): Setlo
 
     socket.on("open", () => {
       openedAt = Date.now();
+      if (recycleMs > 0) {
+        recycleTimer = setTimeout(() => {
+          recycleTimer = null;
+          if (ws !== socket || stopped) return;
+          log.info("setlog WebSocket：定期のつなぎ直し");
+          recycling = true;
+          socket.close(1000);
+        }, recycleMs);
+      }
       lastAlive = openedAt;
       log.info("setlog WebSocket：接続");
       if (notifiedDown) h.onRecovered();
@@ -162,6 +190,7 @@ export function startSetlogSocket(opts: SocketOptions, h: SocketHandlers): Setlo
     stopped = true;
     clearInterval(watchdog);
     if (reconnectTimer) clearTimeout(reconnectTimer);
+    if (recycleTimer) clearTimeout(recycleTimer);
     const s = ws;
     ws = null;
     if (s) {

@@ -197,6 +197,31 @@ describe("startSetlogSocket", () => {
     await until(() => upgrades >= 2);
   });
 
+  it("recycleMs ごとにこちらから閉じてすぐつなぎ直し、そのたびに onOpen を呼ぶ（バックオフしない）", async () => {
+    const closes: number[] = [];
+    let conns = 0;
+    const { url } = await server({
+      onConnection: (s) => {
+        conns++;
+        s.on("close", (code) => closes.push(code));
+      },
+    });
+    const r = recorder();
+    let backoffCalls = 0;
+    start(url, r, {
+      recycleMs: 60,
+      backoffMs: () => {
+        backoffCalls++;
+        return 5000;
+      },
+    });
+    await until(() => r.events.filter((e) => e === "open").length >= 3);
+    expect(closes.slice(0, 2)).toEqual([1000, 1000]);
+    expect(backoffCalls).toBe(0);
+    expect(r.events.filter((e) => e !== "open")).toEqual([]);
+    expect(conns).toBeGreaterThanOrEqual(3);
+  });
+
   it("stop したら再接続しない", async () => {
     let conns = 0;
     const { url } = await server({ onConnection: () => conns++ });
