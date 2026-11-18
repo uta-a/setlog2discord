@@ -8,8 +8,8 @@
  * CDN の 403・404・410 は消えたものとして記録する失敗に入れる（media.ts が ClipDecryptError にする）。
  * 削除済み（REST の isDeleted）は投稿せず skipped で記録する。
  *
- * 投稿は embed：author に名前とアイコン、本文に撮影時刻（JST の暦どおり、分まで）、左の色はその人の tintColor、
- * フッターにグループ名。mp4 は embed の上に添付として並ぶ。
+ * 投稿はカード（Components V2 のコンテナ）：左の帯にその人の tintColor、中に送信者の名前 1 行と、その下に mp4。
+ * 日付・アイコン・グループ名は出さない。
  *
  * mp4 はメモリの Buffer のまま渡し、ディスクには書かない。通知に本文やメンバー名は出さない。
  */
@@ -17,7 +17,6 @@ import {
   ClipDecryptError,
   ClipPayloadSchema,
   MediaFetchError,
-  clipTimeText,
   decryptClip,
   type Keyring,
 } from "../lib/setlog/media";
@@ -101,16 +100,15 @@ export function createClipHandler(deps: ClipDeps): ClipHandler {
       throw e;
     }
 
-    const author = await resolveAuthor(deps, clip.senderId, clip.senderName, nameTimeoutMs);
+    // 名前だけを動画の上に 1 行で出す（アイコン・時刻・グループ名は出さない。色はカードの帯に使う）
+    const author = await resolveAuthor({ ...deps, avatar: async () => undefined }, clip.senderId, clip.senderName, nameTimeoutMs);
     try {
       const discordMessageId = await deps.post(
         m.group.clipsChannelId,
         {
+          layout: "clip",
           authorName: author.name,
-          description: clipTimeText(clip.timestamp),
-          groupName: m.group.name,
           color: author.color,
-          avatar: author.avatar,
           video: { name: fileName(clip.timestamp, id), data: mp4 },
         },
         clipNonce(id),

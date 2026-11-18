@@ -18,7 +18,11 @@ import {
   DiscordAPIError,
   Events,
   GatewayIntentBits,
+  ContainerBuilder,
   EmbedBuilder,
+  escapeMarkdown,
+  MessageFlags,
+  type MessageCreateOptions,
   PermissionFlagsBits,
 } from "discord.js";
 import { AttachmentTooLargeError, type PostEmbed } from "./posting";
@@ -70,31 +74,46 @@ function isTooLarge(e: unknown): boolean {
 /** 投稿の左の色。tintColor が無い人の既定色。 */
 const DEFAULT_COLOR = 0x8a8f98;
 
-/** クリップとテキストの embed を投稿する。 */
+/** クリップ（カードの中に名前と動画）とテキスト（embed）を投稿する。 */
 function embedPoster(client: Client): PostEmbed {
   return async (channelId, post, nonce) => {
     const ch = await client.channels.fetch(channelId);
     if (!ch?.isSendable()) throw new Error("投稿先のチャンネルに送信できない");
-    const embed = new EmbedBuilder()
-      .setAuthor({ name: post.authorName, iconURL: post.avatar ? `attachment://${post.avatar.name}` : undefined })
-      .setDescription(post.description)
-      .setColor(post.color ?? DEFAULT_COLOR)
-      .setFooter({ text: post.groupName });
-    if (post.timestamp !== undefined) embed.setTimestamp(post.timestamp);
-    const files = [post.video, post.avatar]
-      .filter((f) => f !== undefined)
-      .map((f) => ({ attachment: f.data, name: f.name }));
-    try {
-      const msg = await ch.send({
+    // 応答が失われて送り直したときに、Discord 側で同じメッセージの二重投稿を弾く
+    const common = { allowedMentions: { parse: [], repliedUser: false }, nonce, enforceNonce: true } as const;
+    let payload: MessageCreateOptions;
+    if (post.layout === "clip") {
+      // 名前は友達が自由に付けられるので、書式・リンクとして解釈させない
+      const name = escapeMarkdown(post.authorName, { heading: true, maskedLink: true, bulletedList: true, numberedList: true });
+      const card = new ContainerBuilder()
+        .setAccentColor(post.color ?? DEFAULT_COLOR)
+        .addTextDisplayComponents((t) => t.setContent(`**${name}**`))
+        .addMediaGalleryComponents((g) => g.addItems((i) => i.setURL(`attachment://${post.video.name}`)));
+      payload = {
+        ...common,
+        components: [card],
+        files: [{ attachment: post.video.data, name: post.video.name }],
+        flags: MessageFlags.IsComponentsV2,
+      };
+    } else {
+      const embed = new EmbedBuilder()
+        .setAuthor({ name: post.authorName, iconURL: post.avatar ? `attachment://${post.avatar.name}` : undefined })
+        .setDescription(post.description)
+        .setColor(post.color ?? DEFAULT_COLOR)
+        .setFooter({ text: post.groupName });
+      if (post.timestamp !== undefined) embed.setTimestamp(post.timestamp);
+      const files = [post.video, post.avatar]
+        .filter((f) => f !== undefined)
+        .map((f) => ({ attachment: f.data, name: f.name }));
+      payload = {
+        ...common,
         embeds: [embed],
         files,
-        allowedMentions: { parse: [], repliedUser: false },
         reply: post.replyTo ? { messageReference: post.replyTo, failIfNotExists: false } : undefined,
-        // 応答が失われて送り直したときに、Discord 側で同じメッセージの二重投稿を弾く
-        nonce,
-        enforceNonce: true,
-      });
-      return msg.id;
+      };
+    }
+    try {
+      return (await ch.send(payload)).id;
     } catch (e) {
       if (isTooLarge(e)) throw new AttachmentTooLargeError();
       throw e;

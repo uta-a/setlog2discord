@@ -22,8 +22,15 @@ export class AttachmentTooLargeError extends Error {
 
 export type FileData = { name: string; data: Buffer };
 
-/** embed 1 つの投稿。Discord の組み立ては main.ts がする。 */
-export type EmbedPost = {
+/**
+ * クリップの投稿：カード（Components V2 のコンテナ）の中に、送信者の名前 1 行とその下に動画を並べる。
+ * 従来の embed には Bot から動画を入れられず、添付は embed の上に出てしまうため。
+ */
+export type ClipCardPost = { layout: "clip"; authorName: string; color?: number; video: FileData };
+
+/** embed 1 つの投稿（テキスト用）。 */
+export type CardPost = {
+  layout?: "card";
   authorName: string;
   /** embed の本文（Markdown として表示される。呼び出し側で必要ならエスケープする）。 */
   description: string;
@@ -36,6 +43,9 @@ export type EmbedPost = {
   /** 返信先の Discord のメッセージ ID。 */
   replyTo?: string;
 };
+
+/** 投稿 1 件。Discord の組み立ては main.ts がする。 */
+export type EmbedPost = ClipCardPost | CardPost;
 
 export type PostEmbed = (
   channelId: string,

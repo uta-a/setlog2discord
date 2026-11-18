@@ -114,8 +114,8 @@ setlog の友達の新着（2秒クリップとグループのテキストチャ
 
 **投稿の形**
 
-- クリップ：embed と mp4 の添付。embed は author に名前とアイコン、本文に撮影時刻（「11/18（水）22:05」）、左の色はその人の `tintColor`、フッターにグループ名。mp4 は embed の上に並び、そのまま再生できる。クリップ 1 本は約 1.5〜2MB
-- アイコン：メディア CDN の `avatarUrl`（暗号化されていない。拡張子は `.heic` でも中身は JPEG）を Bot が取得し、添付して embed から `attachment://` で参照する（Discord に setlog の URL を渡さない。中身が JPEG・PNG・WebP・GIF でなければ使わない）
+- クリップ：カード（Components V2 のコンテナ）の中に、送信者の名前 1 行（太字）と、その下に mp4。左の帯はその人の `tintColor`。日付・アイコン・グループ名は出さない（2026-11-19 に決めた）。従来の embed には Bot から動画を入れられず、添付は embed の上に出てしまうため、この形にした
+- アイコン（テキストの embed で使う）：メディア CDN の `avatarUrl`（暗号化されていない。拡張子は `.heic` でも中身は JPEG）を Bot が取得し、添付して embed から `attachment://` で参照する（Discord に setlog の URL を渡さない。中身が JPEG・PNG・WebP・GIF でなければ使わない）
 - `tintColor` は `#RRRRGGGGBBBBAAAA`（各成分 16 ビット）の形で返るので、上位 8 ビットを使う
 - 友達のテキスト：クリップと同じ形の embed。本文にテキスト（Markdown はエスケープして書いたとおりに見せる。URL は自動でリンクになる）、タイムスタンプに送信時刻。Webhook は使わない（2026-11-19 に embed に変えた）
 - メンバー名とアバターは `GET chat/message/participantKeys` と `collections` の参加者情報から取り、起動時と `collectionJoined` などのイベントで更新する
@@ -143,7 +143,7 @@ setlog の友達の新着（2秒クリップとグループのテキストチャ
 - Discord への投稿失敗：記録せず、同じく拾い直す。添付の上限超えだけは `failed`。投稿には `messageId` から作った nonce を付け、送り直したときの二重投稿を Discord 側で弾く
 - 削除済み（REST の `isDeleted`）：投稿せず `skipped` で記録する
 
-撮影時刻は JST の暦どおりに分まで書く（04:00 区切りの日付にしない。例：11/19 02:30 の撮影は「11/19（木）2:30」）。メンバー名は `collections` の参加者から引き、引けなければ「メンバー」とする（REST の `senderName` は空文字で返る）。名前は友達が自由に付けられるので、改行と制御文字を除いて 64 文字に切る（embed の author は Markdown を解釈しない）。
+メンバー名は `collections` の参加者から引き、引けなければ「メンバー」とする（REST の `senderName` は空文字で返る）。名前は友達が自由に付けられるので、改行と制御文字を除いて 64 文字に切る（embed の author は Markdown を解釈しない）。
 
 ### 7.2 テキストの転送（setlog → Discord）
 

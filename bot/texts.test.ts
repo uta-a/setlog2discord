@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { MessageHead } from "../lib/setlog/realtime";
 import { keypair, makeEncryptedText } from "../lib/setlog/test-helpers";
 import type { GroupConfig } from "./config";
-import type { EmbedPost } from "./posting";
+import type { CardPost } from "./posting";
 import { createTextHandler, textBody, textNonce, type TextDeps } from "./texts";
 
 const group: GroupConfig = {
@@ -16,12 +16,13 @@ const group: GroupConfig = {
 function setup(text: string, over: Partial<TextDeps> = {}, msgOver: Record<string, unknown> = {}) {
   const me = keypair();
   const msg = makeEncryptedText(me, text, msgOver);
-  const posts: (EmbedPost & { channelId: string; nonce: string })[] = [];
+  const posts: (CardPost & { channelId: string; nonce: string })[] = [];
   const notes: string[] = [];
   const handler = createTextHandler({
     keyring: new Map([["kid-me", me.priv]]),
     myUserId: "u-me",
     post: async (channelId, post, nonce) => {
+      if (post.layout === "clip") throw new Error("テキストは embed の投稿のはず");
       posts.push({ channelId, ...post, nonce });
       return "discord-t";
     },

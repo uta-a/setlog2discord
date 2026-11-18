@@ -4,7 +4,7 @@ import { MediaFetchError } from "../lib/setlog/media";
 import type { MessageHead } from "../lib/setlog/realtime";
 import { keypair, makeEncryptedClip } from "../lib/setlog/test-helpers";
 import { clipNonce, createClipHandler, type ClipDeps } from "./clips";
-import { AttachmentTooLargeError, displayName, type EmbedPost } from "./posting";
+import { AttachmentTooLargeError, displayName, type ClipCardPost } from "./posting";
 import { createIngest } from "./ingest";
 import { openState } from "./state";
 import type { GroupConfig } from "./config";
@@ -23,7 +23,7 @@ const MP4 = Buffer.concat([Buffer.from("\0\0\0\x18ftypmp42"), randomBytes(32)]);
 function setup(over: Partial<ClipDeps> = {}, clipOver = {}, fetchFailures = 0) {
   const me = keypair();
   const { clip, bytes } = makeEncryptedClip(me, MP4, clipOver);
-  const posts: (EmbedPost & { channelId: string; nonce: string })[] = [];
+  const posts: (ClipCardPost & { channelId: string; nonce: string })[] = [];
   const notes: string[] = [];
   let fetches = 0;
   const handler = createClipHandler({
@@ -35,6 +35,7 @@ function setup(over: Partial<ClipDeps> = {}, clipOver = {}, fetchFailures = 0) {
       return bytes;
     },
     post: async (channelId, post, nonce) => {
+      if (post.layout !== "clip") throw new Error("クリップはカードの投稿のはず");
       posts.push({ channelId, ...post, nonce });
       return "discord-1";
     },
@@ -52,22 +53,29 @@ function setup(over: Partial<ClipDeps> = {}, clipOver = {}, fetchFailures = 0) {
 }
 
 describe("クリップのハンドラ", () => {
-  it("復号して clips チャンネルに、名前・アイコン・時刻・色・グループ名を付けて投稿する", async () => {
-    const { run, posts } = setup();
+  it("復号して clips チャンネルに、名前 1 行・色・動画で投稿する（日付・アイコンは出さない）", async () => {
+    let avatarCalls = 0;
+    const { run, posts } = setup({
+      avatar: async () => {
+        avatarCalls++;
+        return { data: JPEG, ext: "jpg" as const };
+      },
+    });
     expect(await run()).toEqual({ result: "posted", discordMessageId: "discord-1" });
     expect(posts.length).toBe(1);
     const p = posts[0];
     expect(p.channelId).toBe("100000000000000004");
-    expect([p.authorName, p.description, p.groupName, p.color]).toEqual(["たろう", "11/18（水）22:05", "友達", 0x65ea7b]);
-    expect(p.video?.name).toBe("setlog-20261118-2205-msg-1.mp4");
-    expect(p.video?.data.equals(MP4)).toBe(true);
-    expect(p.avatar).toEqual({ name: "avatar.jpg", data: JPEG });
+    expect(Object.keys(p).sort()).toEqual(["authorName", "channelId", "color", "layout", "nonce", "video"]);
+    expect([p.authorName, p.color]).toEqual(["たろう", 0x65ea7b]);
+    expect(p.video.name).toBe("setlog-20261118-2205-msg-1.mp4");
+    expect(p.video.data.equals(MP4)).toBe(true);
+    expect(avatarCalls).toBe(0);
   });
 
   it("名前が引けなければ senderName、それも無ければ仮の名前。アイコン・色は無しで投稿する", async () => {
     const a = setup({ profile: async () => undefined }, { senderName: "はなこ" });
     await a.run();
-    expect([a.posts[0].authorName, a.posts[0].avatar, a.posts[0].color]).toEqual(["はなこ", undefined, undefined]);
+    expect(a.posts[0].authorName).toBe("はなこ");
     const b = setup({
       profile: async () => {
         throw new Error("x");
@@ -79,12 +87,6 @@ describe("クリップのハンドラ", () => {
     const c = setup({ profile: async () => ({ name: "" }) }, { senderName: "" });
     await c.run();
     expect(c.posts[0].authorName).toBe("メンバー");
-  });
-
-  it("アイコンが取れなくても投稿する", async () => {
-    const { run, posts } = setup({ avatar: async () => undefined });
-    expect((await run())?.result).toBe("posted");
-    expect(posts[0].avatar).toBeUndefined();
   });
 
   it("削除済みは投稿せず skipped", async () => {
