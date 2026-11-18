@@ -214,14 +214,14 @@ setlog の友達の新着（2秒クリップとグループのテキストチャ
 
 | 層 | 採用 | 備考 |
 | --- | --- | --- |
-| 実行環境 | Node（`crypto` の chacha20-poly1305、`node:sqlite`）＋ tsx | 自宅サーバーのバージョンは導入時に確認 |
+| 実行環境 | Node 26 以上（`crypto` の chacha20-poly1305、`node:sqlite`）＋ tsx | `package.json` の `engines` に書いた。手元は v26.11.1 |
 | setlog WebSocket | `ws` | ping の監視と 401 の判別のため（組み込み `WebSocket` では取れない） |
 | Discord | discord.js | バージョンは導入時の最新安定版 |
 | setlog | `lib/setlog/`（既存） | API・暗号・変換 |
 | 型・検証 | TypeScript、zod | 既存 |
 | 状態 | SQLite（`node:sqlite`） | `data/state.sqlite` |
 | テスト | vitest | 既存 |
-| 常駐 | systemd（専用ユーザー、`Restart=on-failure`） | デプロイは明示の指示があるまで行わない |
+| 常駐 | systemd（専用ユーザー `setlog-bot`、`/opt/setlog-bot`、`Restart=on-failure`、書き込みは `data/` だけ） | ユニットファイルは `deploy/setlog-bot.service`、手順は [deploy.md](deploy.md)。導入作業は利用者が行う |
 
 **リポジトリ構成**
 
@@ -250,7 +250,7 @@ Next.js 関連（`app/`、`lib/bff.ts`、`next.config.ts`、`AGENTS.md`）は削
 - [x] B2：クリップの復号と投稿
 - [x] B3：テキストの転送（setlog → Discord）
 - [x] B4：テキストの送信（Discord → setlog）
-- [ ] B5：自宅サーバーへの導入（systemd）
+- [ ] B5：自宅サーバーへの導入（systemd）。ユニットファイルと手順書（[deploy.md](deploy.md)）は用意済み、導入は未実施
 
 **フェーズ2：任意**
 

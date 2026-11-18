@@ -7,13 +7,14 @@ setlog の友達の新着（2秒クリップとグループのテキストチャ
 - 設計書：[docs/design.md](docs/design.md)
 - API 解析メモ：[docs/api.md](docs/api.md)（WebSocket は 4.9 節）
 - 静的解析レポート：[docs/static-analysis.md](docs/static-analysis.md)
+- 自宅サーバーへの導入：[docs/deploy.md](docs/deploy.md)
 - 動的解析ランブック：[docs/dynamic-analysis.md](docs/dynamic-analysis.md)
 - フィクスチャと伏せ字ルール：[fixtures/README.md](fixtures/README.md)
 - キャプチャツール：[tools/capture/](tools/capture/)
 
 ## 現在のフェーズ
 
-フェーズ0（API 解析）は完了。フェーズ1（Bot）は B4（Discord から setlog への送信）まで実装済みで、次は B5（自宅サーバーへの導入）。
+フェーズ0（API 解析）は完了。フェーズ1（Bot）は B4（Discord から setlog への送信）まで実装済み。B5（自宅サーバーへの導入）はユニットファイルと手順書を用意済みで、導入はこれから。
 
 ## 起動
 
