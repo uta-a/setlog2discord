@@ -28,8 +28,10 @@ export type StateStore = {
   /** 記録と cursor の更新を 1 トランザクションで行う。同じ messageId の 2 回目は無視する。 */
   recordProcessed(r: ProcessedRecord): void;
   getCursor(conversationId: string): number | null;
-  /** その会話でその種類のメッセージを 1 件でも記録したことがあるか（B3 の初回の判定に使う）。 */
+  /** その会話でその種類のメッセージを 1 件でも記録したことがあるか。 */
   hasProcessedKind(conversationId: string, kind: MessageKind): boolean;
+  /** その会話でその種類を記録したメッセージのうち、いちばん古い timestamp（B3 を始めた時点の目安）。 */
+  firstProcessedTimestamp(conversationId: string, kind: MessageKind): number | null;
   /** 投稿済みの setlog のメッセージに対応する Discord のメッセージ ID（返信の組み立てに使う）。 */
   discordMessageIdOf(messageId: string): string | undefined;
   close(): void;
@@ -75,6 +77,7 @@ export function openState(path: string): StateStore {
   );
   const selectCursor = db.prepare("SELECT last_timestamp FROM cursors WHERE conversation_id = ?");
   const selectKind = db.prepare("SELECT 1 FROM processed_messages WHERE conversation_id = ? AND kind = ? LIMIT 1");
+  const selectFirst = db.prepare("SELECT MIN(timestamp) AS first FROM processed_messages WHERE conversation_id = ? AND kind = ?");
   const selectDiscordId = db.prepare(
     "SELECT discord_message_id FROM processed_messages WHERE message_id = ? AND result = 'posted'",
   );
@@ -105,6 +108,10 @@ export function openState(path: string): StateStore {
       return row ? Number(row.last_timestamp) : null;
     },
     hasProcessedKind: (conversationId, kind) => selectKind.get(conversationId, kind) !== undefined,
+    firstProcessedTimestamp(conversationId, kind) {
+      const row = selectFirst.get(conversationId, kind) as { first: number | null } | undefined;
+      return row?.first == null ? null : Number(row.first);
+    },
     discordMessageIdOf(messageId) {
       const row = selectDiscordId.get(messageId) as { discord_message_id: string | null } | undefined;
       return row?.discord_message_id ?? undefined;

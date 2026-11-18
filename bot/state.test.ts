@@ -47,6 +47,16 @@ describe("状態ストア", () => {
     }
   });
 
+  it("会話ごとにその種類を初めて記録したメッセージの timestamp が分かる", () => {
+    const s = openState(":memory:");
+    expect(s.firstProcessedTimestamp("c1", "text")).toBeNull();
+    s.recordProcessed({ messageId: "a", conversationId: "c1", kind: "text", timestamp: 50, result: "posted" });
+    s.recordProcessed({ messageId: "b", conversationId: "c1", kind: "text", timestamp: 20, result: "posted" });
+    expect(s.firstProcessedTimestamp("c1", "text")).toBe(20);
+    expect(s.firstProcessedTimestamp("c1", "clip")).toBeNull();
+    s.close();
+  });
+
   it("会話ごとにその種類を記録したことがあるか分かる", () => {
     const s = openState(":memory:");
     expect(s.hasProcessedKind("c1", "text")).toBe(false);

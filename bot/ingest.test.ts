@@ -196,13 +196,18 @@ describe("REST の補完", () => {
     expect(seen.map((m) => m.message.messageId)).toEqual(["old-clip", "new-text"]);
   });
 
-  it("テキストを記録したことがあれば、テキストも cursor の 24 時間前までさかのぼる", async () => {
+  it("テキストを記録したあとも、初めて記録したテキストより前のテキストは流さない（B3 を始める前の分）", async () => {
     const { ingest, seen, rest, store } = setup();
     store.recordProcessed({ messageId: "t0", conversationId: "conv-1", kind: "text", timestamp: START, result: "posted" });
-    rest.push(msg("old-text", { timestamp: START - HOUR }));
+    store.recordProcessed({ messageId: "t1", conversationId: "conv-1", kind: "text", timestamp: START + 3 * HOUR, result: "posted" });
+    rest.push(
+      msg("before-b3", { timestamp: START - HOUR }),
+      msg("missed", { timestamp: START + HOUR }),
+      msg("old-clip", { timestamp: START - HOUR, contentType: "video/mp4" }),
+    );
     await ingest.backfill();
     await ingest.idle();
-    expect(seen.map((m) => m.message.messageId)).toEqual(["old-text"]);
+    expect(seen.map((m) => m.message.messageId).sort()).toEqual(["missed", "old-clip"]);
   });
 
   it("自分の発言は捨てる", async () => {
