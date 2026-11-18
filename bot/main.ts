@@ -82,13 +82,13 @@ async function main(): Promise<void> {
     const problems = channelProblems(channels, config.guildId);
     if (problems.length > 0) {
       for (const p of problems) log.error(p);
-      await notify(`⚠️ 設定の確認で問題が見つかった:\n${problems.map((p) => `- ${p}`).join("\n")}`);
+      await notify(`設定の確認で問題が見つかった:\n${problems.map((p) => `- ${p}`).join("\n")}`);
       await shutdown(1);
       return;
     }
 
     log.info(`準備完了（グループ ${config.groups.length} 件）`);
-    await notify(`🟢 起動しました（グループ ${config.groups.length} 件）`);
+    await notify(`起動しました（グループ ${config.groups.length} 件）`);
     receiver = startReceiver(config, notify, {
       statePath: process.env.BOT_STATE ?? "data/state.sqlite",
       startedAt,
@@ -100,7 +100,7 @@ async function main(): Promise<void> {
     if (stopping) return;
     stopping = true;
     await receiver?.stop().catch((e) => log.error(`受信の停止に失敗: ${String(e)}`));
-    if (client.isReady() && code === 0) await notify("🔴 停止します");
+    if (client.isReady() && code === 0) await notify("停止します");
     await client.destroy();
     process.exit(code);
   }

@@ -19,8 +19,8 @@ import type { Notifier } from "./status";
 export type Receiver = { stop(): Promise<void> };
 
 const FATAL_TEXT: Record<FatalReason, string> = {
-  auth: "🛑 setlog のトークンが失効した。受信を止めた。メール OTP で再登録して、Bot を再起動する",
-  locked: "🛑 setlog から close 4403（アカウントロックの可能性）。受信を止めた。アプリで状態を確かめる",
+  auth: "setlog のトークンが失効した。受信を止めた。メール OTP で再登録して、Bot を再起動する",
+  locked: "setlog から close 4403（アカウントロックの可能性）。受信を止めた。アプリで状態を確かめる",
 };
 
 /** B1 の仮ハンドラ：受け取ったことだけをログに出す。 */
@@ -66,7 +66,7 @@ export function startReceiver(
         halt("auth");
       } else if (e instanceof SetlogSchemaError) {
         log.warn(`REST 補完：形が想定と違う（${e.endpoint}）`);
-        void notify("⚠️ API 仕様変更の可能性（REST messages の外側の形）。補完できなかった");
+        void notify("API 仕様変更の可能性（REST messages の外側の形）。補完できなかった");
       } else {
         log.warn(`REST 補完に失敗: ${e instanceof Error ? e.message : String(e)}`);
       }
@@ -79,8 +79,8 @@ export function startReceiver(
       onOpen: () => void backfill(),
       onFrame: (text) => ingest.onFrame(text),
       onFatal: halt,
-      onDownTooLong: () => void notify("⚠️ setlog の WebSocket に 5 分以上つながっていない。再接続を続けている"),
-      onRecovered: () => void notify("✅ setlog の WebSocket に再接続した"),
+      onDownTooLong: () => void notify("setlog の WebSocket に 5 分以上つながっていない。再接続を続けている"),
+      onRecovered: () => void notify("setlog の WebSocket に再接続した"),
     },
   );
 

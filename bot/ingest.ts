@@ -65,7 +65,7 @@ export function createIngest(opts: IngestOptions): Ingest {
     log.warn(`setlog の形が想定と違う（${where}）: ${detail}`);
     if (notifiedSchema.has(where)) return;
     notifiedSchema.add(where);
-    void opts.notify(`⚠️ API 仕様変更の可能性（${where}）: ${detail}`);
+    void opts.notify(`API 仕様変更の可能性（${where}）: ${detail}`);
   }
 
   /** 例外を外に出さない（会話のキューの鎖が切れて後続が飛ばないように）。 */
