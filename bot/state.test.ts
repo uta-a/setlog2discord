@@ -86,4 +86,17 @@ describe("状態ストア", () => {
     expect(s.sentMessageIdOf("d1")).toBe("m1");
     s.close();
   });
+
+  it("Discord のメッセージから setlog のメッセージを引く（投稿したものと送ったもの）", () => {
+    const s = openState(":memory:");
+    s.recordProcessed({ messageId: "m1", conversationId: "c1", kind: "clip", timestamp: 1, result: "posted", discordMessageId: "d1" });
+    s.recordProcessed({ messageId: "m2", conversationId: "c1", kind: "text", timestamp: 2, result: "failed" });
+    s.recordSent({ discordMessageId: "d3", setlogMessageId: "m3", conversationId: "c2" });
+    expect(s.setlogMessageOf("d1")).toEqual({ messageId: "m1", conversationId: "c1" });
+    expect(s.setlogMessageOf("d3")).toEqual({ messageId: "m3", conversationId: "c2" });
+    expect(s.setlogMessageOf("none")).toBeUndefined();
+    // 友達が自分の発言に返信したときも Discord の返信にできるよう、送った発言も引ける
+    expect(s.discordMessageIdOf("m3")).toBe("d3");
+    s.close();
+  });
 });

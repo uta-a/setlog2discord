@@ -266,6 +266,8 @@ export class SetlogClient {
     envelope: Envelope;
     keys: MessageKeyEntry[];
     refreshesStaleKeys?: boolean;
+    /** 返信先の messageId。アプリは空でなければ本文に入れる（gf1.java:44-51。暗号の AAD には入らない）。 */
+    parentId?: string;
   }): Promise<string> {
     const body = {
       type: "chat",
@@ -273,6 +275,7 @@ export class SetlogClient {
       messageId: params.messageId,
       uuid: crypto.randomUUID(),
       refreshesStaleKeys: params.refreshesStaleKeys ?? true,
+      ...(params.parentId?.trim() ? { parentId: params.parentId } : {}),
       contentType: "text/plain",
       keys: params.keys,
       envelope: params.envelope,

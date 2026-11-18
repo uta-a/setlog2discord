@@ -22,6 +22,7 @@ import {
   EmbedBuilder,
   escapeMarkdown,
   MessageFlags,
+  MessageReferenceType,
   type MessageCreateOptions,
   PermissionFlagsBits,
 } from "discord.js";
@@ -175,9 +176,12 @@ async function main(): Promise<void> {
       await fail("まだ起動の途中");
       return;
     }
+    // Discord の返信は setlog の返信にする（転送は返信ではないので、参照を持っていても使わない）
+    const replyTo =
+      msg.reference?.type === MessageReferenceType.Default ? (msg.reference.messageId ?? undefined) : undefined;
     try {
       // メンションは <@id> ではなく表示名にして送る
-      await receiver.sendText(group.chatConversationId, msg.cleanContent, msg.id);
+      await receiver.sendText(group.chatConversationId, msg.cleanContent, msg.id, replyTo);
     } catch (e) {
       if (e instanceof SendError) await fail(e.message);
       else {

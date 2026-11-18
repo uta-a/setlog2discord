@@ -15,7 +15,7 @@ import { createIngest } from "./ingest";
 import { log } from "./log";
 import { createMemberDirectory } from "./members";
 import type { PostEmbed } from "./posting";
-import { SendError, createSender } from "./sender";
+import { SendError, createSender, resolveParent } from "./sender";
 import { createTextHandler } from "./texts";
 import { startSetlogSocket, type FatalReason, type SetlogSocket } from "./setlog-socket";
 import { openState } from "./state";
@@ -25,8 +25,11 @@ export type Receiver = {
   stop(): Promise<void>;
   /** すぐつなぎ直す（/reconnect）。つながったら補完も走る。 */
   reconnect(): "reconnecting" | "not-connected" | "halted";
-  /** Discord の発言を setlog に送る（B4）。送れなければ SendError を投げる。 */
-  sendText(conversationId: string, text: string, discordMessageId: string): Promise<void>;
+  /**
+   * Discord の発言を setlog に送る（B4）。replyToDiscordId（Discord で返信した先）があれば、
+   * 対応する setlog のメッセージへの返信として送る。送れなければ SendError を投げる。
+   */
+  sendText(conversationId: string, text: string, discordMessageId: string, replyToDiscordId?: string): Promise<void>;
 };
 
 const FATAL_TEXT: Record<FatalReason, string> = {
@@ -130,9 +133,10 @@ export function startReceiver(
   );
 
   return {
-    async sendText(conversationId, text, discordMessageId) {
+    async sendText(conversationId, text, discordMessageId, replyToDiscordId) {
       if (halted) throw new SendError("受信が止まっている（#bot-status の通知を確認する）");
-      const { messageId } = await sender.send(conversationId, text);
+      const parentId = resolveParent((id) => store.setlogMessageOf(id), replyToDiscordId, conversationId);
+      const { messageId } = await sender.send(conversationId, text, { parentId });
       try {
         store.recordSent({ discordMessageId, setlogMessageId: messageId, conversationId });
       } catch (e) {

@@ -84,4 +84,20 @@ describe("SetlogClient", () => {
     const user = await client(f).loginVerify("x@example.com", "000000");
     expect(typeof user.token).toBe("string");
   });
+
+  it("sendTextMessage は返信先があるときだけ parentId を入れる", async () => {
+    const bodies: Record<string, unknown>[] = [];
+    const f = vi.fn(async (_u: string, init?: RequestInit) => {
+      bodies.push(JSON.parse(String(init?.body)));
+      return res(JSON.stringify({ success: true, messageId: "m1" }));
+    }) as unknown as typeof fetch;
+    const c = client(f);
+    const base = { conversationId: "c1", messageId: "m1", envelope: { v: 1, alg: "CHACHA20-POLY1305", aadB64: "", combinedB64: "" }, keys: [] };
+    await c.sendTextMessage({ ...base, parentId: "p1" });
+    await c.sendTextMessage(base);
+    await c.sendTextMessage({ ...base, parentId: "" });
+    expect(bodies[0].parentId).toBe("p1");
+    expect("parentId" in bodies[1]).toBe(false);
+    expect("parentId" in bodies[2]).toBe(false);
+  });
 });

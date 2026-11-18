@@ -150,6 +150,7 @@
     "envelope": { v, alg: "CHACHA20-POLY1305", aadB64, combinedB64 } }
   ```
   応答：`{ success, messageId }`（200）
+  - **返信**：本文に `"parentId": "<返信先の messageId>"` を足す（静的：`gf1.java:44-51`。空なら入れない）。暗号の AAD（下記の content info）には入らない。動的には未確認
 - **暗号**：content key（ランダム32B）でテキストを ChaCha20-Poly1305 で封入し `envelope` に。`aadB64` は content info（`msg:enc:v1|conv:{convId}|msg:{msgId}|sender:{senderId}|type:text/plain`）の base64。content key を各参加者の公開鍵宛に X25519→HKDF→ChaCha20-Poly1305 でラップし `keys[]` に。実装は `lib/setlog/crypto.ts`（`encryptText`/`decryptText`）
 - フィクスチャ：実データにトークン/本文が絡むためコミットしない（`captures/` のみ）
 

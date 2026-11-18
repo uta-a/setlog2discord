@@ -5,7 +5,7 @@
  *    自分の kid と公開鍵はプロフィール（getMyKey）から取る。どちらも短時間キャッシュする
  * 2. 自分の kid に合う秘密鍵が手元にあり、その公開鍵が setlog の登録と一致するか確かめる
  *    （端末の再登録で鍵が変わっていたら、古い鍵で送ると友達が読めないので送らない）
- * 3. encryptText で参加者と自分（重ねない）宛に暗号化し、sendTextMessage で送る
+ * 3. encryptText で参加者と自分（重ねない）宛に暗号化し、sendTextMessage で送る。返信なら parentId を付ける
  *
  * 送れなかった理由は SendError の message に入れる（Discord の返信にそのまま出す。本文や鍵は入れない）。
  * 本文はログに出さない。
@@ -35,13 +35,17 @@ export type SenderDeps = {
     messageId: string;
     envelope: Envelope;
     keys: MessageKeyEntry[];
+    parentId?: string;
   }) => Promise<string>;
   /** 参加者の鍵をキャッシュする時間。既定 60 秒。 */
   keysTtlMs?: number;
   now?: () => number;
 };
 
-export type Sender = { send(conversationId: string, text: string): Promise<{ messageId: string }> };
+export type Sender = {
+  /** parentId を渡すと、その setlog のメッセージへの返信として送る。 */
+  send(conversationId: string, text: string, opts?: { parentId?: string }): Promise<{ messageId: string }>;
+};
 
 /** 1 回に送れる長さ（Discord の発言は 2000 文字までなので、普通は超えない）。 */
 export const MAX_TEXT = 2000;
@@ -68,7 +72,7 @@ export function createSender(deps: SenderDeps): Sender {
   }
 
   return {
-    async send(conversationId, text) {
+    async send(conversationId, text, opts = {}) {
       const body = text.trim();
       if (!body) throw new SendError("空のメッセージは送れない");
       if ([...body].length > MAX_TEXT) throw new SendError(`長すぎる（${MAX_TEXT} 文字まで）`);
@@ -103,7 +107,7 @@ export function createSender(deps: SenderDeps): Sender {
       });
       let sentId: string;
       try {
-        sentId = await deps.sendTextMessage({ conversationId, messageId, envelope, keys: wrapped });
+        sentId = await deps.sendTextMessage({ conversationId, messageId, envelope, keys: wrapped, parentId: opts.parentId });
       } catch (e) {
         // 鍵が古かった可能性があるので、次は取り直す
         cache.delete(conversationId);
@@ -113,8 +117,26 @@ export function createSender(deps: SenderDeps): Sender {
         throw new SendError("setlog への送信に失敗した");
       }
       // 自分宛も入れている（自分のアプリで履歴を開けるように。アプリも自分を含めて送っている）
-      log.info(`setlog に送信（msg=${sentId.slice(0, 8)}、宛先は友達 ${others.length} 人と自分）`);
+      const reply = opts.parentId ? `、返信先 ${opts.parentId.slice(0, 8)}` : "";
+      log.info(`setlog に送信（msg=${sentId.slice(0, 8)}、宛先は友達 ${others.length} 人と自分${reply}）`);
       return { messageId: sentId };
     },
   };
+}
+
+/**
+ * Discord で返信した先の発言から、setlog の返信先（parentId）を決める。返信でなければ undefined。
+ * 返信先が setlog のメッセージでない（Bot の通知や失敗の返信など）か、別の会話のものなら送らない
+ * （黙って普通の発言として送ると、返信になっていないことに気づけないため）。
+ */
+export function resolveParent(
+  lookup: (discordMessageId: string) => { messageId: string; conversationId: string } | undefined,
+  replyToDiscordId: string | undefined,
+  conversationId: string,
+): string | undefined {
+  if (!replyToDiscordId) return undefined;
+  const parent = lookup(replyToDiscordId);
+  if (!parent) throw new SendError("返信先が setlog のメッセージではない（返信をやめて送り直す）");
+  if (parent.conversationId !== conversationId) throw new SendError("返信先が別の会話のメッセージ");
+  return parent.messageId;
 }
