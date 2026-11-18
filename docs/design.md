@@ -221,7 +221,7 @@ setlog の友達の新着（2秒クリップとグループのテキストチャ
 | 型・検証 | TypeScript、zod | 既存 |
 | 状態 | SQLite（`node:sqlite`） | `data/state.sqlite` |
 | テスト | vitest | 既存 |
-| 常駐 | systemd（専用ユーザー `setlog-bot`、`/opt/setlog-bot`、`Restart=on-failure`、書き込みは `data/` だけ） | ユニットファイルは `deploy/setlog-bot.service`、手順は [deploy.md](deploy.md)。導入作業は利用者が行う |
+| 常駐 | ユーザー単位の systemd（`rakko-server` のユーザー `uta`、`~/vscode/discord/bot/setlog/`、`Restart=on-failure`、linger 有効） | ユニットファイルは `deploy/setlog-bot.user.service`、手順は [deploy.md](deploy.md)。専用ユーザー版は `deploy/setlog-bot.service`（未使用） |
 
 **リポジトリ構成**
 
@@ -250,7 +250,7 @@ Next.js 関連（`app/`、`lib/bff.ts`、`next.config.ts`、`AGENTS.md`）は削
 - [x] B2：クリップの復号と投稿
 - [x] B3：テキストの転送（setlog → Discord）
 - [x] B4：テキストの送信（Discord → setlog）
-- [ ] B5：自宅サーバーへの導入（systemd）。ユニットファイルと手順書（[deploy.md](deploy.md)）は用意済み、導入は未実施
+- [x] B5：自宅サーバーへの導入（systemd）。2026-11-19 に `rakko-server` の `~/vscode/discord/bot/setlog/` へ、ユーザー単位の systemd で導入した（[deploy.md](deploy.md)）
 
 **フェーズ2：任意**
 
