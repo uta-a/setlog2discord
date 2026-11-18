@@ -5,7 +5,7 @@ setlog Discord Bot を自宅の Ubuntu Server（`rakko-server`）で、ユーザ
 | 項目 | 値 |
 | --- | --- |
 | サーバー | `rakko-server`（Ubuntu 24.04、ユーザー `uta`） |
-| 置き場所 | `~/vscode/discord/bot/setlog/`（権限 700） |
+| 置き場所 | `~/vscode/discord/bots/setlog/`（権限 700） |
 | Node.js | `/usr/bin/node` の v26（NodeSource から sudo で導入）、pnpm 11 |
 | サービス | `~/.config/systemd/user/setlog-bot.service`（[`deploy/setlog-bot.user.service`](../deploy/setlog-bot.user.service)） |
 | ログ | `journalctl --user -u setlog-bot` |
@@ -41,9 +41,9 @@ setlog は同じアカウントの「最後に接続した 1 本」にしか新�
 [Mac]    git archive --format=tar.gz -o /tmp/setlog-bot.tgz HEAD
 [Mac]    scp /tmp/setlog-bot.tgz rakko-server:/tmp/ && rm /tmp/setlog-bot.tgz
 
-[server] install -d -m 700 ~/vscode/discord/bot/setlog
-[server] tar -xzf /tmp/setlog-bot.tgz -C ~/vscode/discord/bot/setlog && rm /tmp/setlog-bot.tgz
-[server] cd ~/vscode/discord/bot/setlog && pnpm install --frozen-lockfile --prod
+[server] install -d -m 700 ~/vscode/discord/bots/setlog
+[server] tar -xzf /tmp/setlog-bot.tgz -C ~/vscode/discord/bots/setlog && rm /tmp/setlog-bot.tgz
+[server] cd ~/vscode/discord/bots/setlog && pnpm install --frozen-lockfile --prod
 ```
 
 `--prod` で、テストと型チェックの道具（vitest・typescript）は入れない。`tsx` は本番の依存に入っている。
@@ -61,9 +61,9 @@ setlog は同じアカウントの「最後に接続した 1 本」にしか新�
 
 ```sh
 [Mac]    cd ~/Projects/setlog-webapp
-[Mac]    scp .env.local .secrets.keybackup.json .secrets.passphrase bot.config.json rakko-server:vscode/discord/bot/setlog/
+[Mac]    scp .env.local .secrets.keybackup.json .secrets.passphrase bot.config.json rakko-server:vscode/discord/bots/setlog/
 
-[server] cd ~/vscode/discord/bot/setlog
+[server] cd ~/vscode/discord/bots/setlog
 [server] chmod 600 .env.local .secrets.keybackup.json .secrets.passphrase bot.config.json
 [server] install -d -m 700 data
 ```
@@ -79,8 +79,8 @@ setlog は同じアカウントの「最後に接続した 1 本」にしか新�
 Mac で動いている Bot を止める（`pnpm start` のターミナルで Ctrl+C）。`data/` に `state.sqlite` だけが残っていれば止まり切っている（`-wal`・`-shm` があれば書き込み途中）。
 
 ```sh
-[Mac]    scp data/state.sqlite rakko-server:vscode/discord/bot/setlog/data/
-[server] chmod 600 ~/vscode/discord/bot/setlog/data/state.sqlite
+[Mac]    scp data/state.sqlite rakko-server:vscode/discord/bots/setlog/data/
+[server] chmod 600 ~/vscode/discord/bots/setlog/data/state.sqlite
 ```
 
 引き継がなくても、初回は起動より前のメッセージを流さないので大量には流れない。
@@ -106,8 +106,8 @@ Mac で動いている Bot を止める（`pnpm start` のターミナルで Ctr
 [Mac]    scp /tmp/setlog-bot.tgz rakko-server:/tmp/ && rm /tmp/setlog-bot.tgz
 
 [server] systemctl --user stop setlog-bot
-[server] tar -xzf /tmp/setlog-bot.tgz -C ~/vscode/discord/bot/setlog && rm /tmp/setlog-bot.tgz
-[server] cd ~/vscode/discord/bot/setlog && pnpm install --frozen-lockfile --prod
+[server] tar -xzf /tmp/setlog-bot.tgz -C ~/vscode/discord/bots/setlog && rm /tmp/setlog-bot.tgz
+[server] cd ~/vscode/discord/bots/setlog && pnpm install --frozen-lockfile --prod
 [server] cp deploy/setlog-bot.user.service ~/.config/systemd/user/setlog-bot.service && systemctl --user daemon-reload
 [server] systemctl --user start setlog-bot
 ```
