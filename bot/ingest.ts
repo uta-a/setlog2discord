@@ -10,6 +10,7 @@
  * ハンドラの例外はここで捕まえる（記録しないので、次の補完でもう一度試す）。
  *
  * REST 補完の下限：cursor が無ければプロセス起動時刻、あれば cursor の 24 時間前。直近 40 件まで。
+ * ただしテキストは、その会話で 1 件も記録していない間は起動時刻より前を流さない（B3 を始める前の分を流さないため）。
  *
  * ログと通知に本文は出さない。ID は先頭 8 文字だけ出す。
  */
@@ -126,6 +127,8 @@ export function createIngest(opts: IngestOptions): Ingest {
         const raw = await opts.fetchMessages(conv, { limit: BACKFILL_LIMIT, beforeTimestamp: now() });
         const cursor = opts.store.getCursor(conv);
         const lowerBound = cursor === null ? opts.startedAt : cursor - LOOKBACK_MS;
+        // テキストの転送（B3）を始める前の分は流さない。その会話でテキストを 1 件も記録していない間は起動時刻を下限にする
+        const textBound = opts.store.hasProcessedKind(conv, "text") ? lowerBound : Math.max(lowerBound, opts.startedAt);
         const messages: MessageHead[] = [];
         for (const item of raw) {
           const p = parseMessageHead(item);
@@ -133,7 +136,8 @@ export function createIngest(opts: IngestOptions): Ingest {
             schemaProblem("REST messages", p.error.issues.map((i) => i.path.join(".") || "(root)").join(", "));
             continue;
           }
-          if (p.data.timestamp >= lowerBound) messages.push(p.data);
+          const bound = messageKind(p.data) === "text" ? textBound : lowerBound;
+          if (p.data.timestamp >= bound) messages.push(p.data);
         }
         messages.sort((a, b) => a.timestamp - b.timestamp);
         for (const m of messages) enqueue(m, "rest");

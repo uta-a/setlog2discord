@@ -46,4 +46,25 @@ describe("状態ストア", () => {
       rmSync(dir, { recursive: true, force: true });
     }
   });
+
+  it("会話ごとにその種類を記録したことがあるか分かる", () => {
+    const s = openState(":memory:");
+    expect(s.hasProcessedKind("c1", "text")).toBe(false);
+    s.recordProcessed({ messageId: "m1", conversationId: "c1", kind: "clip", timestamp: 1, result: "posted" });
+    expect(s.hasProcessedKind("c1", "text")).toBe(false);
+    s.recordProcessed({ messageId: "m2", conversationId: "c1", kind: "text", timestamp: 2, result: "skipped" });
+    expect(s.hasProcessedKind("c1", "text")).toBe(true);
+    expect(s.hasProcessedKind("c2", "text")).toBe(false);
+    s.close();
+  });
+
+  it("投稿した setlog のメッセージから Discord のメッセージ ID を引く", () => {
+    const s = openState(":memory:");
+    s.recordProcessed({ messageId: "m1", conversationId: "c1", kind: "text", timestamp: 1, result: "posted", discordMessageId: "d1" });
+    s.recordProcessed({ messageId: "m2", conversationId: "c1", kind: "text", timestamp: 2, result: "failed" });
+    expect(s.discordMessageIdOf("m1")).toBe("d1");
+    expect(s.discordMessageIdOf("m2")).toBeUndefined();
+    expect(s.discordMessageIdOf("none")).toBeUndefined();
+    s.close();
+  });
 });
