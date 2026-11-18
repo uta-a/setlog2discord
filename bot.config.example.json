@@ -1,0 +1,13 @@
+{
+  "guildId": "000000000000000000",
+  "ownerUserId": "000000000000000000",
+  "statusChannelId": "000000000000000000",
+  "groups": [
+    {
+      "name": "グループ名",
+      "conversationId": "setlog の conversationId（collection 側）",
+      "clipsChannelId": "000000000000000000",
+      "chatChannelId": "000000000000000000"
+    }
+  ]
+}

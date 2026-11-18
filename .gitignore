@@ -1,16 +1,11 @@
 # 依存・ビルド
 node_modules/
-.next/
-.open-next/
-out/
 dist/
-.wrangler/
 
 # 環境変数・シークレット
 .env
 .env.*
 !.env.example
-.dev.vars
 
 # API 解析の生データ（トークン・実名・実 URL を含むためコミットしない）
 # 伏せ字済みのものだけを fixtures/ に置く
@@ -40,9 +35,12 @@ tools/capture/redact_map.json
 # Python
 __pycache__/
 *.pyc
-next-env.d.ts
 tsconfig.tsbuildinfo
 
 # 鍵・パスフレーズ（絶対にコミットしない）
 .secrets.*
 .secrets/
+
+# Bot の状態と個人設定（チャンネル ID などを含む。example だけコミットする）
+data/
+bot.config.json
