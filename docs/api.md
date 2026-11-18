@@ -153,6 +153,28 @@
 - **暗号**：content key（ランダム32B）でテキストを ChaCha20-Poly1305 で封入し `envelope` に。`aadB64` は content info（`msg:enc:v1|conv:{convId}|msg:{msgId}|sender:{senderId}|type:text/plain`）の base64。content key を各参加者の公開鍵宛に X25519→HKDF→ChaCha20-Poly1305 でラップし `keys[]` に。実装は `lib/setlog/crypto.ts`（`encryptText`/`decryptText`）
 - フィクスチャ：実データにトークン/本文が絡むためコミットしない（`captures/` のみ）
 
+### 4.9 WebSocket（リアルタイム受信）
+
+静的解析（2026-11-18、`of1`/`n3`/`pl6`/`wh1`/`xi1` ほか。根拠は下記）と、Node から直接接続した実測（2026-11-18）で確認。
+
+- **接続**：`wss://ws.newchatapi.com/`、ヘッダーは `jwt-key` のみ（`x-api-key` 不要）、クエリなし。permessage-deflate なしでも接続できる（実測）。**スマホのアプリと同じトークンで 2 本目の接続を張っても弾かれない**（実測）
+- **購読は不要**：接続後に送るべきフレームは無い。クライアントが送る action は `typing` だけ（`wh1.java:74-110`）。接続するだけで、参加している会話・コレクションのイベントが届く（実測）
+- **ハートビート**：サーバーから 30 秒ごとに ping（WebSocket の制御フレーム）。ライブラリが pong を返せばよい
+- **受信形式**：`{"action": "...", "data": {...}}`。主な action（`pl6.java:1531-1630`）：
+
+  | action | 中身 | 状態 |
+  | --- | --- | --- |
+  | `newMessage` | メッセージ本体。REST の messages と同じ形（`conversationId`/`messageId`/`senderId`/`messageType`/`type`/`timestamp`/`keys[]`/`contentType`、テキストは `envelope`、クリップは `media`） | 動的 |
+  | `messageUpdate` / `messageDeleted` | 編集（キャプション）／削除（`messageId`, `conversationId`） | 静的 |
+  | `newReaction` / `reactionRemoved` / `readReceipt` / `typing` | リアクション・既読・入力中 | 静的 |
+  | `newCollection` / `collectionJoined` / `collectionLeft` / `newConversation` 系 | 参加グループの変化（ID のみ） | 静的 |
+
+- **テキストとクリップは同じ `newMessage` で届く**（実測）。テキストは `type=chat`・`contentType=text/plain`、クリップは `type=collection`・`contentType=video/mp4`。今回のグループでは両者の `conversationId` が同じ値だった
+- **本体がそのまま載る**（実測）：他人のテキストは `decryptText` で復号でき、他人のクリップは `media.path` を CDN から取得して `decryptMedia` で mp4（1280×720、約 1.47MB）まで復号できた。`keys[]` は**自分宛の 1 件だけ**入っていた。撮影の `timestamp` から受信まで約 9 秒
+- **再送は無い**（静的・推測）：アプリは再接続のたびに REST で取り直している（`xi1.b`→`xi1.g`）。取りこぼしは `GET chat/{id}/messages` で埋める必要がある
+- **再接続**：アプリは `min(60s, 1s << min(n-1, 5))` のバックオフ（1→32 秒で頭打ち）。**close code `4403` はアカウントロック扱いで、再接続しない**（`n3.java` の `h()`、`of1.java:232-233`）
+- **未確認**：自分が送ったメッセージが自分の接続にも流れてくるか（エコー）、`messageUpdate` などの実際の形、長時間接続の安定性
+
 ## 5. 判定
 
 | 判定項目 | 結果 |
