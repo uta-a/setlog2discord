@@ -112,7 +112,8 @@ export function createSender(deps: SenderDeps): Sender {
         log.warn(`setlog への送信に失敗: ${e instanceof Error ? e.message : String(e)}`);
         throw new SendError("setlog への送信に失敗した");
       }
-      log.info(`setlog に送信（msg=${sentId.slice(0, 8)}、宛先 ${recipients.length} 人）`);
+      // 自分宛も入れている（自分のアプリで履歴を開けるように。アプリも自分を含めて送っている）
+      log.info(`setlog に送信（msg=${sentId.slice(0, 8)}、宛先は友達 ${others.length} 人と自分）`);
       return { messageId: sentId };
     },
   };
