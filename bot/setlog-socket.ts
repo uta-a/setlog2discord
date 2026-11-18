@@ -5,6 +5,7 @@
  * - サーバーは 30 秒ごとに ping を送る。pingTimeoutMs（既定 90 秒）ping もフレームも来なければ切って張り直す
  * - 再接続はアプリと同じバックオフ（1, 2, 4, … 32 秒で頭打ち）。接続が minStableMs 続いてから切れた場合だけ
  *   回数を戻す（つないですぐ切られる状態で 1 秒ごとに叩き続けないため）
+ * - ハンドシェイクの応答が handshakeTimeoutMs（既定 30 秒）返らなければ、あきらめて張り直す
  * - 接続時の HTTP 401（トークン失効）と close code 4403（アカウントロック）は再接続せず onFatal を呼ぶ
  * - 切れたまま downNotifyMs（既定 5 分）たったら onDownTooLong、その後つながったら onRecovered
  *
@@ -32,6 +33,8 @@ export type SocketOptions = {
   checkIntervalMs?: number;
   downNotifyMs?: number;
   minStableMs?: number;
+  /** ハンドシェイクの応答を待つ上限。既定 30 秒。 */
+  handshakeTimeoutMs?: number;
   /** n 回目（1 始まり）の再接続までの待ち時間。 */
   backoffMs?: (n: number) => number;
 };
@@ -77,7 +80,11 @@ export function startSetlogSocket(opts: SocketOptions, h: SocketHandlers): Setlo
 
   function connect(): void {
     if (stopped) return;
-    const socket = new WebSocket(url, { headers: { "jwt-key": opts.token }, perMessageDeflate: false });
+    const socket = new WebSocket(url, {
+      headers: { "jwt-key": opts.token },
+      perMessageDeflate: false,
+      handshakeTimeout: opts.handshakeTimeoutMs ?? 30_000,
+    });
     ws = socket;
     let down = false;
 

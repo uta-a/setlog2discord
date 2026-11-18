@@ -176,6 +176,27 @@ describe("startSetlogSocket", () => {
     expect(r.events).toEqual(["down", "recovered", "open"]);
   });
 
+  it("ハンドシェイクの応答が無ければあきらめて張り直す", async () => {
+    let upgrades = 0;
+    const held: import("node:stream").Duplex[] = [];
+    const http: Server = createServer();
+    http.on("upgrade", (_req, socket) => {
+      upgrades++;
+      held.push(socket); // 応答しない
+    });
+    await new Promise<void>((r) => http.listen(0, "127.0.0.1", r));
+    cleanups.push(
+      () =>
+        new Promise<void>((r) => {
+          for (const s of held) s.destroy();
+          http.close(() => r());
+        }),
+    );
+    const url = `ws://127.0.0.1:${(http.address() as AddressInfo).port}/`;
+    start(url, recorder(), { handshakeTimeoutMs: 100 });
+    await until(() => upgrades >= 2);
+  });
+
   it("stop したら再接続しない", async () => {
     let conns = 0;
     const { url } = await server({ onConnection: () => conns++ });
