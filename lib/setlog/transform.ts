@@ -47,10 +47,12 @@ export function toMember(p: {
   };
 }
 
-export function toGroup(c: Collection, selfUserId: string): Group {
+export function toGroup(c: Collection, selfUserId?: string): Group {
   const memberIds = c.participants.map((p) => p.userId);
+  // selfUserId が分かればそれが自分だけかで判定。無ければ人数だけで判定。
   const isSolo =
-    memberIds.length <= 1 && (memberIds.length === 0 || memberIds[0] === selfUserId);
+    memberIds.length <= 1 &&
+    (selfUserId === undefined || memberIds.length === 0 || memberIds[0] === selfUserId);
   return {
     sourceId: c.id,
     name: c.name,
