@@ -5,7 +5,7 @@
  * - サーバーは 30 秒ごとに ping を送る。pingTimeoutMs（既定 90 秒）ping もフレームも来なければ切って張り直す
  * - 再接続はアプリと同じバックオフ（1, 2, 4, … 32 秒で頭打ち）。接続が minStableMs 続いてから切れた場合だけ
  *   回数を戻す（つないですぐ切られる状態で 1 秒ごとに叩き続けないため）
- * - recycleMs（既定 5 分）ごとに、こちらから閉じてすぐつなぎ直す（setlog の配信先から外れても戻るため）
+ * - recycleMs（既定 10 分）ごとに、こちらから閉じてすぐつなぎ直す（setlog の配信先から外れても戻るため）
  * - ハンドシェイクの応答が handshakeTimeoutMs（既定 30 秒）返らなければ、あきらめて張り直す
  * - 接続時の HTTP 401（トークン失効）と close code 4403（アカウントロック）は再接続せず onFatal を呼ぶ
  * - 切れたまま downNotifyMs（既定 5 分）たったら onDownTooLong、その後つながったら onRecovered
@@ -39,7 +39,7 @@ export type SocketOptions = {
   /** n 回目（1 始まり）の再接続までの待ち時間。 */
   backoffMs?: (n: number) => number;
   /**
-   * つながってからこの時間がたったら、こちらから閉じてすぐつなぎ直す（既定 5 分。0 で無効）。
+   * つながってからこの時間がたったら、こちらから閉じてすぐつなぎ直す（既定 10 分。0 で無効）。
    * setlog は 1 アカウントにつき 1 本の接続にしか新着を送らず、スマホでアプリを開くとそちらに移り、
    * Bot の接続は切られないまま届かなくなる（api.md 4.9、2026-11-19 実測）。つなぎ直して配信先に戻る。
    */
@@ -73,7 +73,7 @@ export function startSetlogSocket(opts: SocketOptions, h: SocketHandlers): Setlo
   let recycleTimer: NodeJS.Timeout | null = null;
   /** 今つながっている接続を閉じてつなぎ直す関数（つながっていなければ null）。 */
   let recycleCurrent: (() => boolean) | null = null;
-  const recycleMs = opts.recycleMs ?? 5 * 60_000;
+  const recycleMs = opts.recycleMs ?? 10 * 60_000;
 
   const watchdog = setInterval(() => {
     const now = Date.now();
