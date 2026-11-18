@@ -117,12 +117,12 @@ setlog の友達の新着（2秒クリップとグループのテキストチャ
 - クリップ：embed と mp4 の添付。embed は author に名前とアイコン、本文に撮影時刻（「11/18（水）22:05」）、左の色はその人の `tintColor`、フッターにグループ名。mp4 は embed の上に並び、そのまま再生できる。クリップ 1 本は約 1.5〜2MB
 - アイコン：メディア CDN の `avatarUrl`（暗号化されていない。拡張子は `.heic` でも中身は JPEG）を Bot が取得し、添付して embed から `attachment://` で参照する（Discord に setlog の URL を渡さない。中身が JPEG・PNG・WebP・GIF でなければ使わない）
 - `tintColor` は `#RRRRGGGGBBBBAAAA`（各成分 16 ビット）の形で返るので、上位 8 ビットを使う
-- 友達のテキスト：チャンネルの Webhook を使い、送信者の名前とアバターで投稿する（誰の発言かがすぐ分かるように）
+- 友達のテキスト：クリップと同じ形の embed。本文にテキスト（Markdown はエスケープして書いたとおりに見せる。URL は自動でリンクになる）、タイムスタンプに送信時刻。Webhook は使わない（2026-11-19 に embed に変えた）
 - メンバー名とアバターは `GET chat/message/participantKeys` と `collections` の参加者情報から取り、起動時と `collectionJoined` などのイベントで更新する
 
 **Bot の権限と intent**
 
-- 必要な権限：対象チャンネルの閲覧・送信・ファイル添付・Webhook の管理
+- 必要な権限：対象チャンネルの閲覧・送信・ファイル添付・埋め込みリンク
 - 発言の本文を読むので MESSAGE_CONTENT intent が要る（自分のサーバーだけなので、Developer Portal で有効にするだけで足りる見込み。実装時に確認する）
 - `guildCreate` で設定外の guild に入れられたら、即座に退出する
 
@@ -148,10 +148,14 @@ setlog の友達の新着（2秒クリップとグループのテキストチャ
 ### 7.2 テキストの転送（setlog → Discord）
 
 1. `newMessage` で `contentType=text/plain` を受ける。送信者が自分なら捨てる
-2. 処理済みでなければ `decryptText` で復号する
-3. `#<グループ名>-chat` に Webhook で投稿し、対応を記録する
+2. 処理済みでなければ `decryptText` で復号する（自分宛エントリの `kid` で鍵を選ぶ）
+3. `#<グループ名>-chat` に embed で投稿し、対応を記録する
 
-返信（`parentId` あり）は、対応表に元のメッセージがあれば Discord の返信として投稿する。無ければ普通の投稿にする。
+返信（`parentId` あり）は、対応表に元のメッセージがあれば Discord の返信として投稿する。無ければ普通の投稿にする。REST の `parentId` は返信でなければ空文字で返る（実測。返信の実例はまだ無い）。
+
+失敗の扱いはクリップと同じ。復号できない・形が違うものは `failed`、投稿の失敗は記録せず 10 分ごとの補完で拾い直す、削除済みは `skipped`。
+
+**転送を始める前の分は流さない**：B2 から cursor が進んでいるので、そのままだと B3 の初回起動で直近 24 時間のテキストが最大 40 件流れる。会話でテキストを 1 件も記録していない間は、テキストの補完の下限をプロセスの起動時刻にする（表は変えず `processed_messages` から判定する。その間に再起動すると、止まっていた間のテキストは流れない）。
 
 ### 7.3 テキストの送信（Discord → setlog）
 
@@ -240,7 +244,7 @@ Next.js 関連（`app/`、`lib/bff.ts`、`next.config.ts`、`AGENTS.md`）は削
 - [x] B0：Next.js を外して Bot の骨組み（Discord 接続、guild 制限、設定、`#bot-status`）
 - [x] B1：setlog の WebSocket 受信、再接続、REST 補完、状態ストア（受け取ったことをログに出すまで。状態ストアへの記録は B2・B3 で始める）
 - [x] B2：クリップの復号と投稿
-- [ ] B3：テキストの転送（setlog → Discord）
+- [x] B3：テキストの転送（setlog → Discord）
 - [ ] B4：テキストの送信（Discord → setlog）
 - [ ] B5：自宅サーバーへの導入（systemd）
 

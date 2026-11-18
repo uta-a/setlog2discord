@@ -13,7 +13,6 @@
  *
  * mp4 はメモリの Buffer のまま渡し、ディスクには書かない。通知に本文やメンバー名は出さない。
  */
-import { createHash } from "node:crypto";
 import {
   ClipDecryptError,
   ClipPayloadSchema,
@@ -24,41 +23,21 @@ import {
 } from "../lib/setlog/media";
 import { short, type HandlerResult, type IncomingMessage } from "./ingest";
 import { log } from "./log";
-import type { AvatarImage, Profile } from "./members";
+import {
+  AttachmentTooLargeError,
+  createOutcomes,
+  makeNonce,
+  resolveAuthor,
+  type AuthorDeps,
+  type PostEmbed,
+} from "./posting";
 import type { Notifier } from "./status";
 
-/** Discord に添付が大きすぎると断られた。 */
-export class AttachmentTooLargeError extends Error {
-  constructor() {
-    super("Discord の添付の上限を超えた");
-    this.name = "AttachmentTooLargeError";
-  }
-}
-
-/** クリップの投稿内容。Discord の組み立て（embed）は main.ts がする。 */
-export type ClipPost = {
-  authorName: string;
-  timeText: string;
-  groupName: string;
-  color?: number;
-  video: { name: string; data: Buffer };
-  avatar?: { name: string; data: Buffer };
-};
-
-export type PostClip = (
-  channelId: string,
-  post: ClipPost,
-  /** 同じクリップの再送を Discord 側で弾くための値（messageId から作る。25 文字以内）。 */
-  nonce: string,
-) => Promise<string>;
-
-export type ClipDeps = {
+export type ClipDeps = AuthorDeps & {
   keyring: Keyring;
   myUserId: string;
   fetchMedia: (path: string) => Promise<Buffer>;
-  post: PostClip;
-  profile: (userId: string) => Promise<Profile | undefined>;
-  avatar: (path: string) => Promise<AvatarImage | undefined>;
+  post: PostEmbed;
   notify: Notifier;
   /** CDN の再試行の待ち時間（回数もこれで決まる）。既定 1, 2, 4 秒。 */
   retryDelaysMs?: number[];
@@ -71,22 +50,7 @@ export type ClipHandler = ((m: IncomingMessage) => Promise<HandlerResult>) & {
   hasPending(): boolean;
 };
 
-const FALLBACK_NAME = "メンバー";
-const NAME_MAX = 64;
-
-/**
- * 友達が自由に付けた名前を 1 行の短い文字列にする（制御文字と文字の向きの制御を除き、64 文字に切る）。
- * embed の author は Markdown を解釈しないので、エスケープはしない。
- */
-export function displayName(raw: string): string {
-  const oneLine = raw.replace(/[\p{Cc}\u2028\u2029\u202a-\u202e\u2066-\u2069]+/gu, " ").replace(/\s+/g, " ").trim();
-  return [...oneLine].slice(0, NAME_MAX).join("");
-}
-
-/** messageId から nonce（Discord の上限 25 文字）を作る。 */
-export function clipNonce(messageId: string): string {
-  return createHash("sha256").update(`clip:${messageId}`).digest("base64url").slice(0, 25);
-}
+export const clipNonce = (messageId: string) => makeNonce("clip", messageId);
 
 function fileName(ts: number, messageId: string): string {
   const w = new Date(ts + 9 * 60 * 60 * 1000);
@@ -96,46 +60,10 @@ function fileName(ts: number, messageId: string): string {
   return `setlog-${stamp}-${safeId}.mp4`;
 }
 
-function withTimeout<T>(p: Promise<T>, ms: number): Promise<T | undefined> {
-  return new Promise((resolve) => {
-    const t = setTimeout(() => resolve(undefined), ms);
-    p.then(
-      (v) => resolve(v),
-      () => resolve(undefined),
-    ).finally(() => clearTimeout(t));
-  });
-}
-
 export function createClipHandler(deps: ClipDeps): ClipHandler {
   const delays = deps.retryDelaysMs ?? [1000, 2000, 4000];
   const nameTimeoutMs = deps.nameTimeoutMs ?? 5000;
-  /** 記録しない失敗で止まっているクリップ（通知は 1 件につき 1 回）。 */
-  const pending = new Set<string>();
-  /** 記録する失敗のうち、形の違いは同じ理由につき 1 回だけ通知する。 */
-  const notifiedShape = new Set<string>();
-
-  function transient(id: string, text: string): undefined {
-    log.warn(text);
-    if (!pending.has(id)) {
-      pending.add(id);
-      void deps.notify(`${text}。10 分ごとに再試行する`);
-    }
-    return undefined;
-  }
-
-  function done(id: string, r: NonNullable<HandlerResult>): HandlerResult {
-    pending.delete(id);
-    return r;
-  }
-
-  function failed(id: string, text: string, notifyKey?: string): HandlerResult {
-    log.warn(text);
-    if (notifyKey === undefined || !notifiedShape.has(notifyKey)) {
-      if (notifyKey !== undefined) notifiedShape.add(notifyKey);
-      void deps.notify(text);
-    }
-    return done(id, { result: "failed" });
-  }
+  const out = createOutcomes(deps.notify);
 
   async function fetchWithRetry(path: string): Promise<Buffer> {
     for (let i = 0; ; i++) {
@@ -154,12 +82,12 @@ export function createClipHandler(deps: ClipDeps): ClipHandler {
     // 削除済みは本体の形が崩れていることがあるので、厳密な検証より先に見る
     if ((m.message as { isDeleted?: unknown }).isDeleted === true) {
       log.info(`削除済みのクリップを飛ばす（${where}）`);
-      return done(id, { result: "skipped" });
+      return out.done(id, { result: "skipped" });
     }
     const parsed = ClipPayloadSchema.safeParse(m.message);
     if (!parsed.success) {
       const keys = parsed.error.issues.map((i) => i.path.join(".") || "(root)").join(", ");
-      return failed(id, `クリップの形が想定と違う（${where}）: ${keys}`, `shape:${keys}`);
+      return out.failed(id, `クリップの形が想定と違う（${where}）: ${keys}`, `clip-shape:${keys}`);
     }
     const clip = parsed.data;
 
@@ -168,34 +96,31 @@ export function createClipHandler(deps: ClipDeps): ClipHandler {
       const bytes = await fetchWithRetry(clip.media.path);
       mp4 = decryptClip(clip, bytes, deps.keyring, deps.myUserId);
     } catch (e) {
-      if (e instanceof ClipDecryptError) return failed(id, `クリップを開けない（${where}）: ${e.message}`);
-      if (e instanceof MediaFetchError) return transient(id, `クリップの取得に失敗（${where}）: ${e.message}`);
+      if (e instanceof ClipDecryptError) return out.failed(id, `クリップを開けない（${where}）: ${e.message}`);
+      if (e instanceof MediaFetchError) return out.transient(id, `クリップの取得に失敗（${where}）: ${e.message}`);
       throw e;
     }
 
-    const profile = await withTimeout(deps.profile(clip.senderId), nameTimeoutMs);
-    // 空文字も「無い」とみなす（REST の senderName は空文字で返る。実測 2026-11-19）
-    const name = displayName(profile?.name || clip.senderName || "") || FALLBACK_NAME;
-    const icon = profile?.avatarPath ? await withTimeout(deps.avatar(profile.avatarPath), nameTimeoutMs) : undefined;
+    const author = await resolveAuthor(deps, clip.senderId, clip.senderName, nameTimeoutMs);
     try {
       const discordMessageId = await deps.post(
         m.group.clipsChannelId,
         {
-          authorName: name,
-          timeText: clipTimeText(clip.timestamp),
+          authorName: author.name,
+          description: clipTimeText(clip.timestamp),
           groupName: m.group.name,
-          color: profile?.color,
+          color: author.color,
+          avatar: author.avatar,
           video: { name: fileName(clip.timestamp, id), data: mp4 },
-          avatar: icon ? { name: `avatar.${icon.ext}`, data: icon.data } : undefined,
         },
         clipNonce(id),
       );
       log.info(`クリップを投稿（${where}）`);
-      return done(id, { result: "posted", discordMessageId });
+      return out.done(id, { result: "posted", discordMessageId });
     } catch (e) {
-      if (e instanceof AttachmentTooLargeError) return failed(id, `クリップが Discord の添付の上限を超えた（${where}）`);
-      return transient(id, `クリップの投稿に失敗（${where}）: ${e instanceof Error ? e.message : String(e)}`);
+      if (e instanceof AttachmentTooLargeError) return out.failed(id, `クリップが Discord の添付の上限を超えた（${where}）`);
+      return out.transient(id, `クリップの投稿に失敗（${where}）: ${e instanceof Error ? e.message : String(e)}`);
     }
   };
-  return Object.assign(handler, { hasPending: () => pending.size > 0 });
+  return Object.assign(handler, { hasPending: out.hasPending });
 }

@@ -21,7 +21,7 @@ import {
   EmbedBuilder,
   PermissionFlagsBits,
 } from "discord.js";
-import { AttachmentTooLargeError, type PostClip } from "./clips";
+import { AttachmentTooLargeError, type PostEmbed } from "./posting";
 import { ConfigError, configuredChannels, loadConfig, type BotConfig } from "./config";
 import { channelProblems, guildsToLeave, type ChannelInfo } from "./guard";
 import { loadKeyring } from "./keys";
@@ -53,6 +53,7 @@ async function channelInfo(client: Client, id: string): Promise<ChannelInfo | nu
         PermissionFlagsBits.ViewChannel,
         PermissionFlagsBits.SendMessages,
         PermissionFlagsBits.AttachFiles,
+        PermissionFlagsBits.EmbedLinks,
       ]);
     }
     return { guildId, isText, canSend };
@@ -69,23 +70,27 @@ function isTooLarge(e: unknown): boolean {
 /** 投稿の左の色。tintColor が無い人の既定色。 */
 const DEFAULT_COLOR = 0x8a8f98;
 
-function clipPoster(client: Client): PostClip {
+/** クリップとテキストの embed を投稿する。 */
+function embedPoster(client: Client): PostEmbed {
   return async (channelId, post, nonce) => {
     const ch = await client.channels.fetch(channelId);
-    if (!ch?.isSendable()) throw new Error("clips チャンネルに送信できない");
+    if (!ch?.isSendable()) throw new Error("投稿先のチャンネルに送信できない");
     const embed = new EmbedBuilder()
       .setAuthor({ name: post.authorName, iconURL: post.avatar ? `attachment://${post.avatar.name}` : undefined })
-      .setDescription(post.timeText)
+      .setDescription(post.description)
       .setColor(post.color ?? DEFAULT_COLOR)
       .setFooter({ text: post.groupName });
-    const files = [{ attachment: post.video.data, name: post.video.name }];
-    if (post.avatar) files.push({ attachment: post.avatar.data, name: post.avatar.name });
+    if (post.timestamp !== undefined) embed.setTimestamp(post.timestamp);
+    const files = [post.video, post.avatar]
+      .filter((f) => f !== undefined)
+      .map((f) => ({ attachment: f.data, name: f.name }));
     try {
       const msg = await ch.send({
         embeds: [embed],
         files,
-        allowedMentions: { parse: [] },
-        // 応答が失われて送り直したときに、Discord 側で同じクリップの二重投稿を弾く
+        allowedMentions: { parse: [], repliedUser: false },
+        reply: post.replyTo ? { messageReference: post.replyTo, failIfNotExists: false } : undefined,
+        // 応答が失われて送り直したときに、Discord 側で同じメッセージの二重投稿を弾く
         nonce,
         enforceNonce: true,
       });
@@ -142,7 +147,7 @@ async function main(): Promise<void> {
       statePath: process.env.BOT_STATE ?? "data/state.sqlite",
       startedAt,
       keyring,
-      postClip: clipPoster(c),
+      post: embedPoster(c),
     });
   });
 

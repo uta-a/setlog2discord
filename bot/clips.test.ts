@@ -3,7 +3,8 @@ import { describe, expect, it } from "vitest";
 import { MediaFetchError } from "../lib/setlog/media";
 import type { MessageHead } from "../lib/setlog/realtime";
 import { keypair, makeEncryptedClip } from "../lib/setlog/test-helpers";
-import { AttachmentTooLargeError, clipNonce, createClipHandler, displayName, type ClipDeps, type ClipPost } from "./clips";
+import { clipNonce, createClipHandler, type ClipDeps } from "./clips";
+import { AttachmentTooLargeError, displayName, type EmbedPost } from "./posting";
 import { createIngest } from "./ingest";
 import { openState } from "./state";
 import type { GroupConfig } from "./config";
@@ -22,7 +23,7 @@ const MP4 = Buffer.concat([Buffer.from("\0\0\0\x18ftypmp42"), randomBytes(32)]);
 function setup(over: Partial<ClipDeps> = {}, clipOver = {}, fetchFailures = 0) {
   const me = keypair();
   const { clip, bytes } = makeEncryptedClip(me, MP4, clipOver);
-  const posts: (ClipPost & { channelId: string; nonce: string })[] = [];
+  const posts: (EmbedPost & { channelId: string; nonce: string })[] = [];
   const notes: string[] = [];
   let fetches = 0;
   const handler = createClipHandler({
@@ -57,9 +58,9 @@ describe("クリップのハンドラ", () => {
     expect(posts.length).toBe(1);
     const p = posts[0];
     expect(p.channelId).toBe("100000000000000004");
-    expect([p.authorName, p.timeText, p.groupName, p.color]).toEqual(["たろう", "11/18（水）22:05", "友達", 0x65ea7b]);
-    expect(p.video.name).toBe("setlog-20261118-2205-msg-1.mp4");
-    expect(p.video.data.equals(MP4)).toBe(true);
+    expect([p.authorName, p.description, p.groupName, p.color]).toEqual(["たろう", "11/18（水）22:05", "友達", 0x65ea7b]);
+    expect(p.video?.name).toBe("setlog-20261118-2205-msg-1.mp4");
+    expect(p.video?.data.equals(MP4)).toBe(true);
     expect(p.avatar).toEqual({ name: "avatar.jpg", data: JPEG });
   });
 

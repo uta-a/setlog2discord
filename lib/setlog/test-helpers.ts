@@ -1,6 +1,6 @@
 /** テスト用：鍵の生成と、自分宛に暗号化したクリップの作成。 */
 import { generateKeyPairSync, randomBytes, type KeyObject } from "node:crypto";
-import { aeadSeal, contentInfo, rawOfPublicKey, wrapContentKey } from "./crypto";
+import { aeadSeal, contentInfo, encryptText, rawOfPublicKey, wrapContentKey } from "./crypto";
 import type { ClipPayload } from "./media";
 
 export function keypair(): { priv: KeyObject; pubB64: string } {
@@ -32,4 +32,27 @@ export function makeEncryptedClip(me: { pubB64: string }, mp4: Buffer, over: Par
   );
   const clip: ClipPayload = { ...base, keys: [entry], ...over };
   return { clip, bytes };
+}
+
+/** 友達（sender）が自分（me, kid-me）宛に暗号化したテキストを作る。 */
+export function makeEncryptedText(me: { pubB64: string }, text: string, over: Record<string, unknown> = {}) {
+  const sender = keypair();
+  const base = {
+    messageId: "txt-1",
+    conversationId: "conv-1",
+    senderId: "u-friend",
+    contentType: "text/plain",
+    type: "chat",
+    timestamp: Date.UTC(2026, 10, 18, 13, 5),
+  };
+  const { envelope, keys } = encryptText({
+    text,
+    convId: base.conversationId,
+    msgId: base.messageId,
+    senderId: base.senderId,
+    myPriv: sender.priv,
+    sender: { kid: "kid-friend", publicKeyB64: sender.pubB64 },
+    recipients: [{ uid: "u-me", kid: "kid-me", publicKeyB64: me.pubB64 }],
+  });
+  return { ...base, keys, envelope, ...over };
 }
