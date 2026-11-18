@@ -155,7 +155,7 @@ setlog の友達の新着（2秒クリップとグループのテキストチャ
 2. 処理済みでなければ `decryptText` で復号する（自分宛エントリの `kid` で鍵を選ぶ）
 3. `#<グループ名>-chat` に embed で投稿し、対応を記録する
 
-返信（`parentId` あり）は、対応表に元のメッセージがあれば Discord の返信として投稿する。無ければ普通の投稿にする。対応表は、Bot が投稿したもの（`processed_messages`）と Discord から送った自分の発言（`sent_messages`）の両方を引く（友達が自分の発言に返信したときも返信にするため）。REST の `parentId` は返信でなければ空文字で返る（実測。返信の実例はまだ無い）。
+返信（`parentId` あり）は、対応表に元のメッセージがあれば Discord の返信として投稿する。無ければ普通の投稿にする。対応表は、Bot が投稿したもの（`processed_messages`）と Discord から送った自分の発言（`sent_messages`）の両方を引く（友達が自分の発言に返信したときも返信にするため）。ただし WebSocket の `newMessage` には `parentId` が無い（`lib/setlog/text.ts`）ので、WebSocket で先に届いたものは普通の投稿になり、返信として出るのは REST の補完で拾ったものだけ。REST の `parentId` は返信でなければ空文字で返る（実測。返信の実例はまだ無い）。
 
 失敗の扱いはクリップと同じ。復号できない・形が違うものは `failed`、投稿の失敗は記録せず 10 分ごとの補完で拾い直す、削除済みは `skipped`。
 
