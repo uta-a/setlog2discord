@@ -63,7 +63,7 @@ setlog の友達の新着（2秒クリップとグループのテキストチャ
 - `wss://ws.newchatapi.com/` に `jwt-key` ヘッダーを付けて接続する。購読のフレームは送らない（接続すれば参加中の全会話のイベントが届く）
 - `newMessage` にメッセージ本体が載る。テキストは `type=chat`・`contentType=text/plain`、クリップは `type=collection`・`contentType=video/mp4`
 - 他の action（`messageUpdate`、`messageDeleted`、`readReceipt`、`typing` など）は当面ログに残して無視する
-- サーバーは 30 秒ごとに ping を送る。90 秒以上 ping が来なければ切れたとみなして張り直す
+- サーバーは 30 秒ごとに ping を送る。90 秒以上 ping が来なければ切れたとみなして張り直す。ping を受け取り、接続時の HTTP 401（トークン失効）を通信断と区別するため、Node 組み込みの `WebSocket` ではなく `ws` パッケージを使う（[api.md 4.9](api.md)）
 - 再接続はアプリと同じバックオフ（1, 2, 4, 8, 16, 32 秒で頭打ち）。**close code `4403`（アカウントロック）を受けたら再接続せず、停止して通知する**
 
 **自分の発言は届かない**
@@ -76,12 +76,15 @@ setlog の友達の新着（2秒クリップとグループのテキストチャ
 
 **REST による補完**
 
-サーバーはイベントを再送しないので、次のタイミングで `GET chat/{conversationId}/messages?limit=40` を対象グループごとに 1 回ずつ叩く。
+サーバーはイベントを再送しないので、次のタイミングで `GET chat/{conversationId}/messages?limit=40&beforeTimestamp=<現在時刻>` を対象グループごとに 1 回ずつ叩く。パラメータなしだと当日分しか返らないので、`beforeTimestamp` は必ず付ける。
 
 - Bot の起動時
 - WebSocket の再接続に成功したとき
 
-取得したメッセージのうち、`timestamp` が最後に処理した時刻より新しく、未処理の `messageId` のものだけを、WebSocket で受けたときと同じ処理に流す。1 回の補完は直近 40 件までにする（長時間止まっていた場合の古い分は流さない。必要なら手動でさかのぼる）。
+- **未処理かどうかは `messageId` だけで判定する**。クリップの `timestamp` は撮影時刻で、届くのは数秒以上後になる（実測 9 秒）。その間に届いたテキストの方が時刻が新しいので、「最後に処理した時刻より新しいもの」で絞ると遅れて届いたクリップを落とす
+- `timestamp` は下限としてだけ使う。**初回起動時（状態ストアが空のとき）は起動時刻より前のメッセージを流さない**。それ以降は、最後に処理した時刻から 24 時間前を下限にする
+- 1 回の補完は直近 40 件まで（長時間止まっていた場合の古い分は流さない。必要なら手動でさかのぼる）
+- 補完の処理と WebSocket のイベントは、会話ごとに直列で処理する（同じ `messageId` を同時に処理して二重投稿しないため）
 
 ## 5. 認証と鍵
 
@@ -158,7 +161,7 @@ setlog の友達の新着（2秒クリップとグループのテキストチャ
 | --- | --- |
 | `processed_messages` | setlog の `messageId`、`conversationId`、種別（clip / text）、`timestamp`、Discord のメッセージ ID、結果（posted / skipped / failed） |
 | `sent_messages` | Discord のメッセージ ID と、送信した setlog の `messageId` |
-| `cursors` | 会話ごとの最後に処理した `timestamp`（REST 補完の起点） |
+| `cursors` | 会話ごとの最後に処理した `timestamp`（REST 補完の下限を決めるのに使う。未処理の判定には使わない） |
 
 復号した mp4 は Discord に投稿したら手元には残さない。ローカルに保存するかは、必要になったら決める。
 
@@ -190,7 +193,8 @@ setlog の友達の新着（2秒クリップとグループのテキストチャ
 
 | 層 | 採用 | 備考 |
 | --- | --- | --- |
-| 実行環境 | Node（`crypto` の chacha20-poly1305、組み込み `WebSocket`、`node:sqlite`） | 自宅サーバーのバージョンは導入時に確認 |
+| 実行環境 | Node（`crypto` の chacha20-poly1305、`node:sqlite`）＋ tsx | 自宅サーバーのバージョンは導入時に確認 |
+| setlog WebSocket | `ws` | ping の監視と 401 の判別のため（組み込み `WebSocket` では取れない） |
 | Discord | discord.js | バージョンは導入時の最新安定版 |
 | setlog | `lib/setlog/`（既存） | API・暗号・変換 |
 | 型・検証 | TypeScript、zod | 既存 |

@@ -172,9 +172,11 @@
 - **テキストとクリップは同じ `newMessage` で届く**（実測）。テキストは `type=chat`・`contentType=text/plain`、クリップは `type=collection`・`contentType=video/mp4`。今回のグループでは両者の `conversationId` が同じ値だった
 - **本体がそのまま載る**（実測）：他人のテキストは `decryptText` で復号でき、他人のクリップは `media.path` を CDN から取得して `decryptMedia` で mp4（1280×720、約 1.47MB）まで復号できた。`keys[]` は**自分宛の 1 件だけ**入っていた。撮影の `timestamp` から受信まで約 9 秒
 - **再送は無い**（静的・推測）：アプリは再接続のたびに REST で取り直している（`xi1.b`→`xi1.g`）。取りこぼしは `GET chat/{id}/messages` で埋める必要がある
+- **補完に使う REST の範囲**（実測 2026-11-18）：`GET chat/{id}/messages?limit=40` を**パラメータなしで叩くと当日分（11/18 の 4 件）しか返らなかった**（範囲の正確な定義は未確認）。`beforeTimestamp=<現在時刻 ms>` を付けると日付をまたいで新しい順に `limit` 件返る（`limit=5` で 5 件）。`beforeTimestamp` はその時刻ちょうどのメッセージも含んだ。`lastEvaluatedKey` は今回いつも null
 - **再接続**：アプリは `min(60s, 1s << min(n-1, 5))` のバックオフ（1→32 秒で頭打ち）。**close code `4403` はアカウントロック扱いで、再接続しない**（`n3.java` の `h()`、`of1.java:232-233`）
 - **自分の発言は自分の接続に流れない**（実測）：待ち受け中（13:50:03 接続）に自分がスマホから送ったテキスト（サーバー上の `timestamp` は 13:53:39）は、同じアカウントの別接続に届かなかった。REST の `GET chat/{id}/messages` には入っている。自分の発言・自分のクリップを拾うには REST が必要
 - **15 分間の接続はサーバーから切られなかった**（実測。こちらから close 1000 で閉じた）
+- **トークンが不正なら接続時に HTTP 401**（実測。curl で Upgrade を送ると 401）。Node 組み込みの `WebSocket` では close 1006 しか見えず 401 と通信断を区別できない。ping も受け取れない。Bot では `ws` パッケージを使う（`unexpected-response` で状態コード、`ping` イベントで生存確認）
 - **未確認**：`messageUpdate` などの実際の形、それより長い接続の安定性
 
 ## 5. 判定
