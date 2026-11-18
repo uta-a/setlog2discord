@@ -6,16 +6,21 @@
  * 確認できない（実鍵は AndroidKeyStore 内で取り出せない）。
  */
 import { describe, it, expect } from "vitest";
-import { generateKeyPairSync, randomBytes, type KeyObject } from "node:crypto";
+import { createPublicKey, generateKeyPairSync, pbkdf2Sync, randomBytes } from "node:crypto";
 
 import {
   aeadOpen,
   aeadSeal,
+  contentInfo,
+  decryptMedia,
   deriveKey,
+  rawOfPublicKey,
   rawToPrivateKey,
   rawToPublicKey,
+  recoverPrivateKeyFromBackup,
   unwrapContentKey,
   wrapInfo,
+  type KeyBackup,
 } from "./crypto";
 
 /** X25519 鍵ペアを生成し、生 32byte と KeyObject の両方を返す。 */
@@ -95,5 +100,78 @@ describe("content key のラップ/アンラップ（setlog 方式の再現）",
       wrappedB64,
     };
     expect(() => unwrapContentKey(entry, attacker.privateKey, "c", "s")).toThrow();
+  });
+});
+
+describe("メディア復号（pb3.b 方式：全体 1 回の AEAD、鍵=content key）", () => {
+  it("content key と content info で暗号化した本体を復号できる", () => {
+    const contentKey = randomBytes(32);
+    const mime = "video/mp4";
+    const info = contentInfo("conv-1", "msg-1", "sender-1", mime, 1);
+    const plain = Buffer.concat([Buffer.from("\0\0\0\x18ftypmp42"), randomBytes(500)]);
+    const fileBytes = aeadSeal(contentKey, plain, Buffer.from(info, "utf-8"), randomBytes(12));
+    const out = decryptMedia(contentKey, fileBytes, "conv-1", "msg-1", "sender-1", [mime]);
+    expect(out.equals(plain)).toBe(true);
+  });
+
+  it("正しい MIME が候補に無いと失敗", () => {
+    const contentKey = randomBytes(32);
+    const info = contentInfo("c", "m", "s", "video/mp4", 1);
+    const fileBytes = aeadSeal(contentKey, Buffer.from("x"), Buffer.from(info, "utf-8"), randomBytes(12));
+    expect(() => decryptMedia(contentKey, fileBytes, "c", "m", "s", ["image/png"])).toThrow();
+  });
+});
+
+describe("鍵バックアップからの秘密鍵復元（PBKDF2 + AEAD）", () => {
+  it("パスフレーズで秘密鍵を復元し公開鍵が一致する", () => {
+    const id = genPair();
+    const passphrase = "correct horse battery staple";
+    const salt = randomBytes(32);
+    const iterations = 10_000; // テストは軽く
+    const dk = pbkdf2Sync(passphrase, salt, iterations, 32, "sha256");
+    const publicKeyB64 = id.rawPub.toString("base64");
+    const aad = Buffer.from(JSON.stringify({ publicKeyB64 }), "utf-8");
+    const inner = JSON.stringify({
+      v: 1,
+      identityPrivateKeyB64: id.rawPriv.toString("base64"),
+      publicKeyB64,
+      kid: "kid-1",
+    });
+    const ctB64 = aeadSeal(dk, Buffer.from(inner, "utf-8"), aad, randomBytes(12)).toString("base64");
+    const backup: KeyBackup = {
+      v: 1,
+      alg: "PBKDF2-HMAC-SHA256+CHACHA20-POLY1305",
+      kdf: { name: "PBKDF2-HMAC-SHA256", iterations, saltB64: salt.toString("base64") },
+      aadB64: aad.toString("base64"),
+      ctB64,
+      kid: "kid-1",
+      publicKeyB64,
+    };
+    const r = recoverPrivateKeyFromBackup(backup, passphrase);
+    expect(rawOfPublicKey(createPublicKey(r.privateKey)).toString("base64")).toBe(publicKeyB64);
+  });
+
+  it("パスフレーズが違うと復元できない", () => {
+    const id = genPair();
+    const salt = randomBytes(32);
+    const dk = pbkdf2Sync("right", salt, 10_000, 32, "sha256");
+    const publicKeyB64 = id.rawPub.toString("base64");
+    const aad = Buffer.from("{}", "utf-8");
+    const ctB64 = aeadSeal(
+      dk,
+      Buffer.from(JSON.stringify({ identityPrivateKeyB64: id.rawPriv.toString("base64"), publicKeyB64 })),
+      aad,
+      randomBytes(12),
+    ).toString("base64");
+    const backup: KeyBackup = {
+      v: 1,
+      alg: "x",
+      kdf: { name: "PBKDF2-HMAC-SHA256", iterations: 10_000, saltB64: salt.toString("base64") },
+      aadB64: aad.toString("base64"),
+      ctB64,
+      kid: "k",
+      publicKeyB64,
+    };
+    expect(() => recoverPrivateKeyFromBackup(backup, "wrong")).toThrow();
   });
 });

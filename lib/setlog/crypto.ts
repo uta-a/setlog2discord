@@ -24,6 +24,7 @@ import {
   createPublicKey,
   diffieHellman,
   hkdfSync,
+  pbkdf2Sync,
   type KeyObject,
 } from "node:crypto";
 
@@ -49,6 +50,11 @@ export function rawToPrivateKey(raw32: Buffer): KeyObject {
     format: "der",
     type: "pkcs8",
   });
+}
+
+/** KeyObject(public/private) から生 32byte を取り出す。 */
+export function rawOfPublicKey(pub: KeyObject): Buffer {
+  return Buffer.from(pub.export({ type: "spki", format: "der" }).subarray(-32));
 }
 
 /**
@@ -111,4 +117,92 @@ export function unwrapContentKey(
   const senderPub = rawToPublicKey(Buffer.from(entry.senderPublicKey, "base64"));
   const wrapKey = deriveKey(myPriv, senderPub, salt, info);
   return aeadOpen(wrapKey, Buffer.from(entry.wrappedB64, "base64"), Buffer.from(info, "utf-8"));
+}
+
+/**
+ * メディア本文の content info 文字列（pb3.k）。AAD に使う。
+ * v1: conv={convId} msg={msgId}、v2: conv=media-v2 msg=shared-media。
+ */
+export function contentInfo(
+  convId: string,
+  msgId: string,
+  senderId: string,
+  mime: string,
+  v = 1,
+): string {
+  if (v >= 2) {
+    return `msg:enc:v${v}|conv:media-v2|msg:shared-media|sender:${senderId}|type:${mime}`;
+  }
+  return `msg:enc:v1|conv:${convId}|msg:${msgId}|sender:${senderId}|type:${mime}`;
+}
+
+/**
+ * メディア本体の復号（pb3.b）。
+ * **鍵は content key そのもの**（追加の HKDF は無い）。ファイル全体が 1 回の
+ * ChaCha20-Poly1305：nonce(12) + ciphertext + tag(16)、AAD = content info。
+ * 正しい MIME が分からないと AEAD 認証で落ちるので候補を順に試す。
+ */
+export function decryptMedia(
+  contentKey: Buffer,
+  fileBytes: Buffer,
+  convId: string,
+  msgId: string,
+  senderId: string,
+  mimeCandidates: string[],
+): Buffer {
+  const infos: string[] = [];
+  for (const mime of mimeCandidates) {
+    infos.push(contentInfo(convId, msgId, senderId, mime, 1));
+    infos.push(contentInfo(convId, msgId, senderId, mime, 2));
+  }
+  let lastErr: unknown;
+  for (const info of infos) {
+    try {
+      return aeadOpen(contentKey, fileBytes, Buffer.from(info, "utf-8"));
+    } catch (e) {
+      lastErr = e;
+    }
+  }
+  throw new Error(`メディア復号に失敗（MIME/AAD 候補すべて不一致）: ${String(lastErr)}`);
+}
+
+/**
+ * 鍵バックアップ（GET auth/key-backup）＋パスフレーズ → X25519 秘密鍵を復元。
+ * PBKDF2-HMAC-SHA256（kdf.iterations 回）→ ChaCha20-Poly1305 で ctB64 を開く。
+ * 平文は {identityPrivateKeyB64, publicKeyB64, kid} の JSON。
+ * 復元鍵の公開鍵が backup.publicKeyB64 と一致するか検証して返す。
+ *
+ * 注意：この経路は秘密鍵を端末外（BFF/サーバー）で扱う。信頼境界が広がる。
+ */
+export type KeyBackup = {
+  v: number;
+  alg: string;
+  kdf: { name: string; iterations: number; saltB64: string };
+  aadB64: string;
+  ctB64: string;
+  kid: string;
+  publicKeyB64: string;
+};
+
+export function recoverPrivateKeyFromBackup(
+  backup: KeyBackup,
+  passphrase: string,
+): { privateKey: KeyObject; kid: string; publicKeyB64: string } {
+  const dk = pbkdf2Sync(
+    passphrase,
+    Buffer.from(backup.kdf.saltB64, "base64"),
+    backup.kdf.iterations,
+    KEY_LEN,
+    "sha256",
+  );
+  const aad = Buffer.from(backup.aadB64, "base64");
+  const pt = aeadOpen(dk, Buffer.from(backup.ctB64, "base64"), aad);
+  const obj = JSON.parse(pt.toString("utf-8")) as { identityPrivateKeyB64: string };
+  const privRaw = Buffer.from(obj.identityPrivateKeyB64, "base64");
+  const privateKey = rawToPrivateKey(privRaw);
+  const gotPub = rawOfPublicKey(createPublicKey(privateKey));
+  if (!gotPub.equals(Buffer.from(backup.publicKeyB64, "base64"))) {
+    throw new Error("復元鍵の公開鍵が backup.publicKeyB64 と一致しない");
+  }
+  return { privateKey, kid: backup.kid, publicKeyB64: backup.publicKeyB64 };
 }
