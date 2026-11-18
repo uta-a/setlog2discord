@@ -55,7 +55,11 @@ def _safe_path(path: str) -> str:
 
 
 def _maybe_json(raw: bytes, content_type: str):
-    """JSON ならパースして返す。無理なら None。"""
+    """JSON ならパースして返す。無理なら None。
+
+    raw は解凍済みのバイト列（mitmproxy の .content）を渡すこと。
+    圧縮済みの .raw_content を渡すとデコードに失敗して None になる。
+    """
     if "json" not in content_type.lower():
         return None
     try:
@@ -135,7 +139,8 @@ def response(flow: http.HTTPFlow) -> None:
     }
 
     # リクエストボディ（JSON なら構造ごと、そうでなければテキスト先頭だけ）
-    req_body_json = _maybe_json(req.raw_content or b"", req_headers.get("content-type", req_headers.get("Content-Type", "")))
+    # .content は解凍済み。.raw_content は圧縮済みなので使わない。
+    req_body_json = _maybe_json(req.content or b"", req_headers.get("content-type", req_headers.get("Content-Type", "")))
     if req_body_json is not None:
         record["request"]["body"] = req_body_json
 
@@ -149,16 +154,17 @@ def response(flow: http.HTTPFlow) -> None:
             (media_dir / f"{base}.bin").write_bytes(resp.raw_content)
             record["response"]["savedBytesTo"] = str((media_dir / f"{base}.bin"))
     else:
-        resp_body_json = _maybe_json(resp.raw_content or b"", resp_ctype)
+        # .content は Content-Encoding(gzip/br/deflate/zstd)を解凍済み。
+        decoded = resp.content or b""
+        resp_body_json = _maybe_json(decoded, resp_ctype)
         if resp_body_json is not None:
             record["response"]["body"] = resp_body_json
         else:
             # JSON でないテキスト系は先頭だけ記録（バイナリは記録しない）
-            raw = resp.raw_content or b""
             try:
-                record["response"]["bodyTextHead"] = raw[:2000].decode("utf-8")
+                record["response"]["bodyTextHead"] = decoded[:2000].decode("utf-8")
             except UnicodeDecodeError:
-                record["response"]["bodyTextHead"] = f"<binary {len(raw)} bytes>"
+                record["response"]["bodyTextHead"] = f"<binary {len(decoded)} bytes>"
 
     out = CAPTURE_DIR / f"{base}.json"
     out.write_text(json.dumps(record, ensure_ascii=False, indent=2), encoding="utf-8")
