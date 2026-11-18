@@ -68,25 +68,24 @@ export function createIngest(opts: IngestOptions): Ingest {
     void opts.notify(`⚠️ API 仕様変更の可能性（${where}）: ${detail}`);
   }
 
+  /** 例外を外に出さない（会話のキューの鎖が切れて後続が飛ばないように）。 */
   async function handleOne(m: IncomingMessage): Promise<void> {
     const id = m.message.messageId;
-    if (opts.store.isProcessed(id)) return;
-    let r: HandlerResult;
     try {
-      r = await opts.handler(m);
+      if (opts.store.isProcessed(id)) return;
+      const r: HandlerResult = await opts.handler(m);
+      if (!r) return;
+      opts.store.recordProcessed({
+        messageId: id,
+        conversationId: m.message.conversationId,
+        kind: m.kind,
+        timestamp: m.message.timestamp,
+        result: r.result,
+        discordMessageId: r.discordMessageId,
+      });
     } catch (e) {
       log.error(`処理に失敗（${m.kind} msg=${short(id)}）: ${e instanceof Error ? e.message : String(e)}`);
-      return;
     }
-    if (!r) return;
-    opts.store.recordProcessed({
-      messageId: id,
-      conversationId: m.message.conversationId,
-      kind: m.kind,
-      timestamp: m.message.timestamp,
-      result: r.result,
-      discordMessageId: r.discordMessageId,
-    });
   }
 
   function enqueue(message: MessageHead, source: "ws" | "rest"): void {

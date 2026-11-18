@@ -120,6 +120,24 @@ describe("取り込み（WebSocket）", () => {
     expect(store.isProcessed("m2")).toBe(true);
   });
 
+  it("状態ストアの例外でも後続を処理し、idle は解決する", async () => {
+    const store = openState(":memory:");
+    let n = 0;
+    const flaky = {
+      ...store,
+      recordProcessed: (r: Parameters<typeof store.recordProcessed>[0]) => {
+        if (++n === 1) throw new Error("disk full");
+        store.recordProcessed(r);
+      },
+    };
+    const { ingest } = setup({ store: flaky });
+    ingest.onFrame(frame(msg("m1")));
+    ingest.onFrame(frame(msg("m2")));
+    await ingest.idle();
+    expect(store.isProcessed("m1")).toBe(false);
+    expect(store.isProcessed("m2")).toBe(true);
+  });
+
   it("形が違うフレームは action ごとに 1 回だけ通知し、値は出さない", async () => {
     const { ingest, notes, seen } = setup();
     const bad = frame({ conversationId: "conv-1", senderId: "u-friend", secret: "本文" });
