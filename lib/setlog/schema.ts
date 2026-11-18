@@ -152,3 +152,51 @@ export const MessagesResponseSchema = z.object({
   messages: z.array(MessageSchema),
 });
 export type MessagesResponse = z.infer<typeof MessagesResponseSchema>;
+
+// --- テキストメッセージ（受信・送信）---------------------------------
+
+/** text/plain のメッセージ（envelope あり、media なし）。 */
+export const TextMessageSchema = z.object({
+  messageId: z.string(),
+  conversationId: z.string(),
+  senderId: z.string(),
+  senderName: z.string().optional(),
+  contentType: z.string(), // "text/plain"
+  envelope: z.object({
+    v: z.number(),
+    alg: z.string(),
+    aadB64: z.string(),
+    combinedB64: z.string(),
+  }),
+  keys: z.array(MessageKeySchema),
+  timestamp: z.number(),
+  isDeleted: z.boolean().optional(),
+});
+export type TextMessage = z.infer<typeof TextMessageSchema>;
+
+/** 送信者/受信者の鍵（participantKeys）。 */
+export const ParticipantKeySchema = z.object({
+  userId: z.string(),
+  name: z.string().optional(),
+  publicKey: z.string(),
+  kid: z.string(),
+});
+export type ParticipantKey = z.infer<typeof ParticipantKeySchema>;
+
+export const ParticipantKeysResponseSchema = z.object({
+  success: z.boolean(),
+  participants: z.array(ParticipantKeySchema),
+});
+
+/** 会話一覧（DM）。 */
+export const ConversationsResponseSchema = z.object({
+  success: z.boolean(),
+  conversations: z.array(z.object({ id: z.string() }).loose()),
+  lastEvaluatedKey: z.string().nullable(),
+});
+
+/** 送信レスポンス。 */
+export const SendMessageResponseSchema = z.object({
+  success: z.boolean(),
+  messageId: z.string(),
+});

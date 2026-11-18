@@ -15,14 +15,19 @@ import { z } from "zod";
 import {
   CalendarResponseSchema,
   CollectionsResponseSchema,
+  ConversationsResponseSchema,
   LoginResponseSchema,
   MessagesResponseSchema,
+  ParticipantKeysResponseSchema,
   ProfileResponseSchema,
+  SendMessageResponseSchema,
   type CalendarResponse,
   type Collection,
   type Message,
+  type ParticipantKey,
   type User,
 } from "./schema";
+import type { Envelope, MessageKeyEntry } from "./crypto";
 
 export const SETLOG_BASE_URL = "https://api.newchatapi.com";
 
@@ -209,6 +214,72 @@ export class SetlogClient {
       { method: "GET" },
     );
     return r.messages;
+  }
+
+  // --- テキストチャット -----------------------------------------------
+
+  /** 会話（DM）一覧。 */
+  async getConversations(): Promise<{ id: string }[]> {
+    const r = await this.request("/chat/conversations", ConversationsResponseSchema, { method: "GET" });
+    return r.conversations;
+  }
+
+  /**
+   * 会話のメッセージ（フィード）。`limit` と任意の `beforeTimestamp` でページング。
+   * zod は緩め（text/media が混在するため Message スキーマで受けず生で返す）。
+   */
+  async getConversationMessages(
+    conversationId: string,
+    opts: { limit?: number; beforeTimestamp?: number } = {},
+  ): Promise<unknown[]> {
+    const q = new URLSearchParams({ limit: String(opts.limit ?? 40) });
+    if (opts.beforeTimestamp) q.set("beforeTimestamp", String(opts.beforeTimestamp));
+    const r = await this.request(
+      `/chat/${conversationId}/messages?${q}`,
+      z.object({ success: z.boolean(), messages: z.array(z.unknown()) }),
+      { method: "GET" },
+    );
+    return r.messages;
+  }
+
+  /** 会話の参加者の公開鍵＋kid（送信時の鍵ラップに使う）。 */
+  async getParticipantKeys(conversationId: string): Promise<ParticipantKey[]> {
+    const q = new URLSearchParams({ conversationId });
+    const r = await this.request(
+      `/chat/message/participantKeys?${q}`,
+      ParticipantKeysResponseSchema,
+      { method: "GET" },
+    );
+    return r.participants;
+  }
+
+  /**
+   * テキストメッセージを送信する（POST /chat/{conversationId}/message）。
+   * envelope / keys は crypto.encryptText で作る。**アカウントへの書き込み。**
+   */
+  async sendTextMessage(params: {
+    conversationId: string;
+    messageId: string;
+    envelope: Envelope;
+    keys: MessageKeyEntry[];
+    refreshesStaleKeys?: boolean;
+  }): Promise<string> {
+    const body = {
+      type: "chat",
+      conversationId: params.conversationId,
+      messageId: params.messageId,
+      uuid: crypto.randomUUID(),
+      refreshesStaleKeys: params.refreshesStaleKeys ?? true,
+      contentType: "text/plain",
+      keys: params.keys,
+      envelope: params.envelope,
+    };
+    const r = await this.request(
+      `/chat/${params.conversationId}/message`,
+      SendMessageResponseSchema,
+      { method: "POST", body: JSON.stringify(body) },
+    );
+    return r.messageId;
   }
 }
 

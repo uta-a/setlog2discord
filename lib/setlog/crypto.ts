@@ -25,6 +25,7 @@ import {
   diffieHellman,
   hkdfSync,
   pbkdf2Sync,
+  randomBytes,
   type KeyObject,
 } from "node:crypto";
 
@@ -183,6 +184,105 @@ export type KeyBackup = {
   kid: string;
   publicKeyB64: string;
 };
+
+// --- テキストメッセージ（受信・送信）--------------------------------
+
+const WRAP_ALG = "X25519-HKDF-SHA256+CHACHA20-POLY1305";
+
+export type MessageKeyEntry = {
+  uid: string;
+  kid: string;
+  v: number;
+  alg: string;
+  saltB64: string;
+  wrappedB64: string;
+  senderKid: string;
+  senderPublicKey: string;
+};
+
+export type Envelope = { v: number; alg: string; aadB64: string; combinedB64: string };
+
+/**
+ * 受信：テキストメッセージを復号する。
+ * keys[] の自分宛（uid === selfUserId）で content key をアンラップし、
+ * envelope.combinedB64 を content info(text/plain) を AAD にして開く。
+ */
+export function decryptText(
+  msg: {
+    conversationId: string;
+    messageId: string;
+    senderId: string;
+    contentType?: string;
+    keys: { uid: string; saltB64: string; senderPublicKey: string; wrappedB64: string }[];
+    envelope: Envelope;
+  },
+  myPriv: KeyObject,
+  selfUserId: string,
+): string {
+  const entry = msg.keys.find((k) => k.uid === selfUserId);
+  if (!entry) throw new Error("自分宛の鍵エントリが無い");
+  const contentKey = unwrapContentKey(entry, myPriv, msg.conversationId, msg.senderId);
+  const mime = msg.contentType || "text/plain";
+  const info = contentInfo(msg.conversationId, msg.messageId, msg.senderId, mime, msg.envelope.v);
+  const pt = aeadOpen(contentKey, Buffer.from(msg.envelope.combinedB64, "base64"), Buffer.from(info, "utf-8"));
+  return pt.toString("utf-8");
+}
+
+/** content key を 1 受信者宛にラップして keys[] エントリを作る（送信用）。 */
+export function wrapContentKey(
+  contentKey: Buffer,
+  recipient: { uid: string; kid: string; publicKeyB64: string },
+  myPriv: KeyObject,
+  sender: { kid: string; publicKeyB64: string; senderId: string },
+  convId: string,
+): MessageKeyEntry {
+  const info = wrapInfo(convId, sender.senderId);
+  const salt = randomBytes(32);
+  const recipientPub = rawToPublicKey(Buffer.from(recipient.publicKeyB64, "base64"));
+  const wrapKey = deriveKey(myPriv, recipientPub, salt, info);
+  const nonce = randomBytes(12);
+  const wrapped = aeadSeal(wrapKey, contentKey, Buffer.from(info, "utf-8"), nonce);
+  return {
+    uid: recipient.uid,
+    kid: recipient.kid,
+    v: 1,
+    alg: WRAP_ALG,
+    saltB64: salt.toString("base64"),
+    wrappedB64: wrapped.toString("base64"),
+    senderKid: sender.kid,
+    senderPublicKey: sender.publicKeyB64,
+  };
+}
+
+/**
+ * 送信：テキストを暗号化し envelope + keys[] を作る。
+ * content key はランダム 32byte。各受信者（自分含む）宛にラップする。
+ */
+export function encryptText(params: {
+  text: string;
+  convId: string;
+  msgId: string;
+  senderId: string;
+  myPriv: KeyObject;
+  sender: { kid: string; publicKeyB64: string };
+  recipients: { uid: string; kid: string; publicKeyB64: string }[];
+}): { envelope: Envelope; keys: MessageKeyEntry[] } {
+  const contentKey = randomBytes(32);
+  const info = contentInfo(params.convId, params.msgId, params.senderId, "text/plain", 1);
+  const nonce = randomBytes(12);
+  const combined = aeadSeal(contentKey, Buffer.from(params.text, "utf-8"), Buffer.from(info, "utf-8"), nonce);
+  const envelope: Envelope = {
+    v: 1,
+    alg: "CHACHA20-POLY1305",
+    aadB64: Buffer.from(info, "utf-8").toString("base64"),
+    combinedB64: combined.toString("base64"),
+  };
+  const senderFull = { ...params.sender, senderId: params.senderId };
+  const keys = params.recipients.map((r) =>
+    wrapContentKey(contentKey, r, params.myPriv, senderFull, params.convId),
+  );
+  return { envelope, keys };
+}
 
 export function recoverPrivateKeyFromBackup(
   backup: KeyBackup,

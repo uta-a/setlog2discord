@@ -13,7 +13,9 @@ import {
   aeadSeal,
   contentInfo,
   decryptMedia,
+  decryptText,
   deriveKey,
+  encryptText,
   rawOfPublicKey,
   rawToPrivateKey,
   rawToPublicKey,
@@ -119,6 +121,56 @@ describe("メディア復号（pb3.b 方式：全体 1 回の AEAD、鍵=content
     const info = contentInfo("c", "m", "s", "video/mp4", 1);
     const fileBytes = aeadSeal(contentKey, Buffer.from("x"), Buffer.from(info, "utf-8"), randomBytes(12));
     expect(() => decryptMedia(contentKey, fileBytes, "c", "m", "s", ["image/png"])).toThrow();
+  });
+});
+
+describe("テキスト送受信（encryptText → decryptText）", () => {
+  it("送信者が暗号化したテキストを各受信者が復号できる", () => {
+    const sender = genPair();
+    const alice = genPair();
+    const bob = genPair();
+    const convId = "conv-1";
+    const msgId = "msg-1";
+    const senderId = "u-sender";
+    const recipients = [
+      { uid: "u-sender", kid: "k-s", publicKeyB64: sender.rawPub.toString("base64") },
+      { uid: "u-alice", kid: "k-a", publicKeyB64: alice.rawPub.toString("base64") },
+      { uid: "u-bob", kid: "k-b", publicKeyB64: bob.rawPub.toString("base64") },
+    ];
+    const { envelope, keys } = encryptText({
+      text: "こんにちは 👋 group",
+      convId,
+      msgId,
+      senderId,
+      myPriv: sender.privateKey,
+      sender: { kid: "k-s", publicKeyB64: sender.rawPub.toString("base64") },
+      recipients,
+    });
+    expect(keys.length).toBe(3);
+
+    const msg = { conversationId: convId, messageId: msgId, senderId, contentType: "text/plain", keys, envelope };
+    // 各受信者が自分の秘密鍵で復号
+    expect(decryptText(msg, sender.privateKey, "u-sender")).toBe("こんにちは 👋 group");
+    expect(decryptText(msg, alice.privateKey, "u-alice")).toBe("こんにちは 👋 group");
+    expect(decryptText(msg, bob.privateKey, "u-bob")).toBe("こんにちは 👋 group");
+  });
+
+  it("受信者でない鍵では復号できない", () => {
+    const sender = genPair();
+    const alice = genPair();
+    const outsider = genPair();
+    const { envelope, keys } = encryptText({
+      text: "secret",
+      convId: "c",
+      msgId: "m",
+      senderId: "u-s",
+      myPriv: sender.privateKey,
+      sender: { kid: "ks", publicKeyB64: sender.rawPub.toString("base64") },
+      recipients: [{ uid: "u-a", kid: "ka", publicKeyB64: alice.rawPub.toString("base64") }],
+    });
+    const msg = { conversationId: "c", messageId: "m", senderId: "u-s", keys, envelope };
+    // outsider は keys に居ないので「自分宛が無い」
+    expect(() => decryptText(msg, outsider.privateKey, "u-x")).toThrow();
   });
 });
 

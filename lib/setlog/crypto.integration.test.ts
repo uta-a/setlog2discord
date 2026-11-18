@@ -9,7 +9,13 @@ import { describe, it, expect } from "vitest";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
-import { recoverPrivateKeyFromBackup, unwrapContentKey, decryptMedia, type KeyBackup } from "./crypto";
+import {
+  recoverPrivateKeyFromBackup,
+  unwrapContentKey,
+  decryptMedia,
+  decryptText,
+  type KeyBackup,
+} from "./crypto";
 
 const repo = fileURLToPath(new URL("../../", import.meta.url));
 const PASS = `${repo}.secrets.passphrase`;
@@ -62,5 +68,22 @@ describe.skipIf(!ready)("実クリップ復号（ライブラリ経由）", () =
     ]);
     // ftyp box を確認（mp4）
     expect(mp4.subarray(4, 8).toString("ascii")).toBe("ftyp");
+  });
+
+  it("実テキストメッセージを復号できる（dev-msgs があるとき）", () => {
+    const f = `${repo}captures/direct/dev-msgs.json`;
+    if (!existsSync(f)) return; // 無ければスキップ相当
+    const passphrase = readFileSync(PASS, "utf-8").trim();
+    const { backup } = JSON.parse(readFileSync(BACKUP, "utf-8")) as { backup: KeyBackup };
+    const { privateKey } = recoverPrivateKeyFromBackup(backup, passphrase);
+    const msgs = JSON.parse(readFileSync(f, "utf-8")).messages as {
+      envelope?: unknown;
+      contentType?: string;
+    }[];
+    const text = msgs.find((m) => m.envelope && m.contentType === "text/plain");
+    if (!text) return;
+    const out = decryptText(text as never, privateKey, SELF);
+    expect(typeof out).toBe("string");
+    expect(out.length).toBeGreaterThan(0);
   });
 });
