@@ -106,7 +106,8 @@ export function createClipHandler(deps: ClipDeps): (m: IncomingMessage) => Promi
       throw e;
     }
 
-    const name = (await deps.memberName(clip.senderId).catch(() => undefined)) ?? clip.senderName ?? FALLBACK_NAME;
+    // 空文字も「無い」とみなす（REST の senderName は空文字で返る。実測 2026-11-19）
+    const name = (await deps.memberName(clip.senderId).catch(() => undefined)) || clip.senderName || FALLBACK_NAME;
     const content = `${escapeMarkdown(name)} · ${clipTimeLabel(clip.timestamp)}`;
     try {
       const discordMessageId = await deps.post(m.group.clipsChannelId, content, {

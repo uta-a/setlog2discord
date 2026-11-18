@@ -68,6 +68,10 @@ describe("クリップのハンドラ", () => {
     });
     await b.run();
     expect(b.posts[0].content).toMatch(/^メンバー · /);
+    // REST の senderName は実際には空文字で返る
+    const c = setup({ memberName: async () => "" }, { senderName: "" });
+    await c.run();
+    expect(c.posts[0].content).toMatch(/^メンバー · /);
   });
 
   it("削除済みは投稿せず skipped", async () => {
