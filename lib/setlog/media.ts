@@ -59,7 +59,12 @@ export class ClipDecryptError extends Error {
 
 /** media.path から CDN の URL を作る。CDN 以外を指していたら投げる。 */
 export function mediaUrl(path: string, base = MEDIA_BASE_URL): URL {
-  const url = new URL(path, base);
+  let url: URL;
+  try {
+    url = new URL(path, base);
+  } catch {
+    throw new ClipDecryptError("media.path が URL として読めない");
+  }
   if (url.origin !== new URL(base).origin) throw new ClipDecryptError("media.path が CDN 以外を指している");
   return url;
 }
@@ -69,11 +74,12 @@ export async function fetchMedia(
   opts: { fetchImpl?: typeof fetch; timeoutMs?: number; maxBytes?: number; base?: string } = {},
 ): Promise<Buffer> {
   const url = mediaUrl(path, opts.base);
-  const maxBytes = opts.maxBytes ?? 50 * 1024 * 1024;
+  const maxBytes = opts.maxBytes ?? 25 * 1024 * 1024;
   let res: Response;
   try {
     res = await (opts.fetchImpl ?? fetch)(url, {
       signal: AbortSignal.timeout(opts.timeoutMs ?? 30_000),
+      // 実 CDN はリダイレクトせず 200 を返す（実測）。別ホストへ飛ばされないよう拒否する
       redirect: "error",
     });
   } catch (e) {
@@ -81,6 +87,10 @@ export async function fetchMedia(
   }
   if (!res.ok) {
     await res.body?.cancel().catch(() => {});
+    // 消えた・見られないものは何度取り直しても変わらない
+    if (res.status === 403 || res.status === 404 || res.status === 410) {
+      throw new ClipDecryptError(`CDN に無い（HTTP ${res.status}）`);
+    }
     throw new MediaFetchError(`CDN の取得に失敗: HTTP ${res.status}`);
   }
   const declared = Number(res.headers.get("content-length") ?? "0");
@@ -90,25 +100,33 @@ export async function fetchMedia(
   }
   const chunks: Buffer[] = [];
   let total = 0;
+  const reader = res.body?.getReader();
   try {
-    for await (const chunk of res.body ?? []) {
-      total += chunk.byteLength;
+    while (reader) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
       if (total > maxBytes) throw new ClipDecryptError(`クリップが大きすぎる（${total} B 超）`);
-      chunks.push(Buffer.from(chunk));
+      chunks.push(Buffer.from(value));
     }
   } catch (e) {
+    await reader?.cancel().catch(() => {});
     if (e instanceof ClipDecryptError) throw e;
     throw new MediaFetchError(`CDN の受信に失敗: ${e instanceof Error ? e.name : "unknown"}`);
   }
+  // 途中で切れた本体は復号の認証で落ちて「開けない」になるので、ここで一時的な失敗として扱う
+  if (declared > 0 && total !== declared) throw new MediaFetchError(`CDN の受信が途中で切れた（${total}/${declared} B）`);
   return Buffer.concat(chunks);
 }
 
 /** 自分宛の鍵エントリで content key を開き、mp4 に戻す。 */
 export function decryptClip(clip: ClipPayload, bytes: Buffer, keyring: Keyring, selfUserId: string): Buffer {
-  const entry = clip.keys.find((k) => k.uid === selfUserId);
-  if (!entry) throw new ClipDecryptError("自分宛の鍵エントリが無い");
-  const priv = keyring.get(entry.kid);
-  if (!priv) throw new ClipDecryptError(`手元に kid=${entry.kid.slice(0, 8)} の鍵が無い`);
+  const mine = clip.keys.filter((k) => k.uid === selfUserId);
+  if (mine.length === 0) throw new ClipDecryptError("自分宛の鍵エントリが無い");
+  // 鍵の世代が変わると自分宛が複数並ぶことがある。手元に鍵があるものを選ぶ
+  const entry = mine.find((k) => keyring.has(k.kid));
+  if (!entry) throw new ClipDecryptError(`手元に kid=${mine.map((k) => k.kid.slice(0, 8)).join("/")} の鍵が無い`);
+  const priv = keyring.get(entry.kid)!;
   let contentKey: Buffer;
   try {
     contentKey = unwrapContentKey(entry, priv, clip.conversationId, clip.senderId);
@@ -125,7 +143,7 @@ export function decryptClip(clip: ClipPayload, bytes: Buffer, keyring: Keyring, 
 
 const WEEKDAYS = ["日", "月", "火", "水", "木", "金", "土"];
 
-/** 撮影時刻を JST の暦どおりに「11/19（水）2時台」と書く（04:00 区切りの日付ではない）。 */
+/** 撮影時刻を JST の暦どおりに「11/19（木）2時台」と書く（04:00 区切りの日付ではない）。 */
 export function clipTimeLabel(ts: number): string {
   const w = new Date(ts + 9 * 60 * 60 * 1000);
   return `${w.getUTCMonth() + 1}/${w.getUTCDate()}（${WEEKDAYS[w.getUTCDay()]}）${w.getUTCHours()}時台`;

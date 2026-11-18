@@ -40,6 +40,8 @@ export type SetlogConfig = {
   baseUrl?: string;
   /** 最小リクエスト間隔(ms)。アプリ並みに抑える。既定 1000。 */
   minIntervalMs?: number;
+  /** 1 リクエストの上限(ms)。直列なので 1 本が固まると後続がすべて止まる。既定 30000。 */
+  timeoutMs?: number;
   fetchImpl?: typeof fetch;
 };
 
@@ -137,6 +139,7 @@ export class SetlogClient {
       await this.throttle();
       const { withAuth = true, ...rest } = init;
       const res = await this.fetchImpl(`${this.baseUrl}${endpoint}`, {
+        signal: AbortSignal.timeout(this.config.timeoutMs ?? 30_000),
         ...rest,
         headers: { ...this.headers(withAuth), ...(rest.headers as Record<string, string>) },
       });

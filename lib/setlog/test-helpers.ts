@@ -16,6 +16,7 @@ export function makeEncryptedClip(me: { pubB64: string }, mp4: Buffer, over: Par
     conversationId: "conv-1",
     senderId: "u-friend",
     contentType: "video/mp4",
+    type: "collection",
     timestamp: Date.UTC(2026, 10, 18, 13, 5), // JST 11/18 22:05
     media: { path: "ap/uploads/u-friend/1-abc", mimeType: "video/mp4" },
   };

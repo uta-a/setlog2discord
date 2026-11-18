@@ -87,3 +87,42 @@ describe("clipTimeLabel", () => {
     expect(clipTimeLabel(Date.UTC(2026, 10, 18, 17, 30))).toBe("11/19（木）2時台");
   });
 });
+
+describe("レビューで直した点", () => {
+  const res = (status: number, body: Uint8Array = new Uint8Array(), headers: Record<string, string> = {}) =>
+    (async () => new Response(status === 200 ? body : "x", { status, headers })) as unknown as typeof fetch;
+
+  it("CDN の 403・404・410 は再試行しない側（ClipDecryptError）", async () => {
+    for (const st of [403, 404, 410]) await expect(fetchMedia("a", { fetchImpl: res(st) })).rejects.toThrow(ClipDecryptError);
+  });
+
+  it("URL として読めない path は ClipDecryptError", () => {
+    expect(() => mediaUrl("http://[")).toThrow(ClipDecryptError);
+  });
+
+  it("本体が content-length より短ければ再試行する側（MediaFetchError）", async () => {
+    await expect(
+      fetchMedia("a", { fetchImpl: res(200, new Uint8Array(5), { "content-length": "10" }) }),
+    ).rejects.toThrow(MediaFetchError);
+  });
+
+  it("受信の途中で上限を超えたら止める", async () => {
+    const f = (async () =>
+      new Response(
+        new ReadableStream({
+          pull(c) {
+            c.enqueue(new Uint8Array(8));
+          },
+        }),
+      )) as unknown as typeof fetch;
+    await expect(fetchMedia("a", { fetchImpl: f, maxBytes: 20 })).rejects.toThrow(ClipDecryptError);
+  });
+
+  it("自分宛のエントリが複数あれば、手元に鍵がある kid のものを使う", () => {
+    const me = keypair();
+    const { clip, bytes } = makeEncryptedClip(me, MP4);
+    const stale = { ...clip.keys[0], kid: "kid-gone" };
+    const out = decryptClip({ ...clip, keys: [stale, clip.keys[0]] }, bytes, new Map([["kid-me", me.priv]]), "u-me");
+    expect(out.equals(MP4)).toBe(true);
+  });
+});

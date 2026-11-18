@@ -297,7 +297,11 @@ export function recoverPrivateKeyFromBackup(
   );
   const aad = Buffer.from(backup.aadB64, "base64");
   const pt = aeadOpen(dk, Buffer.from(backup.ctB64, "base64"), aad);
-  const obj = JSON.parse(pt.toString("utf-8")) as { identityPrivateKeyB64: string };
+  const obj = JSON.parse(pt.toString("utf-8")) as { identityPrivateKeyB64: string; kid?: string };
+  // 外側の kid は認証されていないので、暗号文の中の kid と食い違えば使わない
+  if (obj.kid !== undefined && obj.kid !== backup.kid) {
+    throw new Error("鍵バックアップの kid が中身と一致しない");
+  }
   const privRaw = Buffer.from(obj.identityPrivateKeyB64, "base64");
   const privateKey = rawToPrivateKey(privRaw);
   const gotPub = rawOfPublicKey(createPublicKey(privateKey));
