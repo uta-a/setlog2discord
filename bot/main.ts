@@ -18,6 +18,7 @@ import {
   DiscordAPIError,
   Events,
   GatewayIntentBits,
+  InteractionContextType,
   ContainerBuilder,
   EmbedBuilder,
   escapeMarkdown,
@@ -27,7 +28,7 @@ import {
 } from "discord.js";
 import { AttachmentTooLargeError, type PostEmbed } from "./posting";
 import { ConfigError, configuredChannels, loadConfig, type BotConfig } from "./config";
-import { channelProblems, guildsToLeave, type ChannelInfo } from "./guard";
+import { canUseCommand, channelProblems, guildsToLeave, type ChannelInfo } from "./guard";
 import { loadKeyring } from "./keys";
 import { log } from "./log";
 import { startReceiver, type Receiver } from "./receiver";
@@ -70,6 +71,15 @@ async function channelInfo(client: Client, id: string): Promise<ChannelInfo | nu
 function isTooLarge(e: unknown): boolean {
   return e instanceof DiscordAPIError && (e.status === 413 || e.code === 40005);
 }
+
+/** setlog にすぐつなぎ直すコマンド（スマホのアプリに配信先を取られたとき用）。 */
+const RECONNECT_COMMAND = {
+  name: "reconnect",
+  description: "setlog にすぐつなぎ直す（取りこぼし分も補完する）",
+  // サーバー管理者だけに見せる（実際に使えるのは ownerUserId だけ）
+  defaultMemberPermissions: PermissionFlagsBits.Administrator,
+  contexts: [InteractionContextType.Guild],
+};
 
 /** 投稿の左の色。tintColor が無い人の既定色。 */
 const DEFAULT_COLOR = 0x8a8f98;
@@ -142,6 +152,26 @@ async function main(): Promise<void> {
   const client = new Client({ intents: [GatewayIntentBits.Guilds] });
   const notify = createNotifier(client, config.statusChannelId);
 
+  client.on(Events.InteractionCreate, async (interaction) => {
+    if (!interaction.isChatInputCommand() || interaction.commandName !== RECONNECT_COMMAND.name) return;
+    try {
+      if (!canUseCommand({ guildId: interaction.guildId, userId: interaction.user.id }, config)) {
+        await interaction.reply({ content: "このコマンドは使えない", flags: MessageFlags.Ephemeral });
+        return;
+      }
+      const r = receiver?.reconnect() ?? "not-connected";
+      const text = {
+        reconnecting: "setlog につなぎ直した。取りこぼし分も補完する",
+        "not-connected": "setlog につながっていない（自動で再接続を続けている）",
+        halted: "受信は止まっている（#bot-status の通知を確認する）",
+      }[r];
+      log.info(`/reconnect: ${r}`);
+      await interaction.reply({ content: text, flags: MessageFlags.Ephemeral });
+    } catch (e) {
+      log.warn(`/reconnect の応答に失敗: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  });
+
   client.on(Events.GuildCreate, async (guild) => {
     if (guild.id === config.guildId) return;
     log.warn(`設定外の guild に追加されたので退出する: ${guild.id}`);
@@ -171,6 +201,12 @@ async function main(): Promise<void> {
       await shutdown(1);
       return;
     }
+
+    // スラッシュコマンドは設定した guild にだけ登録する（全体には出さない）
+    await c.guilds.cache
+      .get(config.guildId)
+      ?.commands.set([RECONNECT_COMMAND])
+      .catch((e) => log.warn(`スラッシュコマンドの登録に失敗: ${e instanceof Error ? e.message : String(e)}`));
 
     log.info(`準備完了（グループ ${config.groups.length} 件）`);
     await notify(`起動しました（グループ ${config.groups.length} 件）`);

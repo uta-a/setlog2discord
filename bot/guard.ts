@@ -35,3 +35,11 @@ export function channelProblems(
   }
   return problems;
 }
+
+/** スラッシュコマンドを使えるか。設定した guild の中の、設定した自分のユーザーだけ（DM・他人・他の guild は不可）。 */
+export function canUseCommand(
+  who: { guildId: string | null; userId: string },
+  config: { guildId: string; ownerUserId: string },
+): boolean {
+  return who.guildId === config.guildId && who.userId === config.ownerUserId;
+}

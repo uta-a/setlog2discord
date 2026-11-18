@@ -49,7 +49,11 @@ export type SocketOptions = {
 /** アプリと同じ min(60s, 1s << min(n-1, 5))。 */
 export const appBackoffMs = (n: number) => Math.min(60_000, 1000 * 2 ** Math.min(Math.max(n, 1) - 1, 5));
 
-export type SetlogSocket = { stop(): void };
+export type SetlogSocket = {
+  stop(): void;
+  /** 今の接続をこちらから閉じてすぐつなぎ直す（/reconnect 用）。つながっていなければ何もせず false。 */
+  reconnectNow(): boolean;
+};
 
 export function startSetlogSocket(opts: SocketOptions, h: SocketHandlers): SetlogSocket {
   const url = opts.url ?? SETLOG_WS_URL;
@@ -67,6 +71,8 @@ export function startSetlogSocket(opts: SocketOptions, h: SocketHandlers): Setlo
   let notifiedDown = false;
   let reconnectTimer: NodeJS.Timeout | null = null;
   let recycleTimer: NodeJS.Timeout | null = null;
+  /** 今つながっている接続を閉じてつなぎ直す関数（つながっていなければ null）。 */
+  let recycleCurrent: (() => boolean) | null = null;
   const recycleMs = opts.recycleMs ?? 5 * 60_000;
 
   const watchdog = setInterval(() => {
@@ -105,6 +111,7 @@ export function startSetlogSocket(opts: SocketOptions, h: SocketHandlers): Setlo
       if (ws === socket) ws = null;
       if (recycleTimer) clearTimeout(recycleTimer);
       recycleTimer = null;
+      recycleCurrent = null;
       if (recycling && !stopped) {
         // 定期のつなぎ直し：失敗ではないので、待たずに・回数を数えずにつなぐ
         openedAt = null;
@@ -141,13 +148,17 @@ export function startSetlogSocket(opts: SocketOptions, h: SocketHandlers): Setlo
 
     socket.on("open", () => {
       openedAt = Date.now();
+      recycleCurrent = () => {
+        if (ws !== socket || stopped || recycling) return false;
+        recycling = true;
+        socket.close(1000);
+        return true;
+      };
       if (recycleMs > 0) {
         recycleTimer = setTimeout(() => {
           recycleTimer = null;
-          if (ws !== socket || stopped) return;
           log.info("setlog WebSocket：定期のつなぎ直し");
-          recycling = true;
-          socket.close(1000);
+          recycleCurrent?.();
         }, recycleMs);
       }
       lastAlive = openedAt;
@@ -202,5 +213,12 @@ export function startSetlogSocket(opts: SocketOptions, h: SocketHandlers): Setlo
   }
 
   connect();
-  return { stop };
+  return {
+    stop,
+    reconnectNow() {
+      if (!recycleCurrent) return false;
+      log.info("setlog WebSocket：コマンドでつなぎ直す");
+      return recycleCurrent();
+    },
+  };
 }

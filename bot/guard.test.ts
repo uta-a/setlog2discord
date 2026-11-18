@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { channelProblems, guildsToLeave } from "./guard";
+import { canUseCommand, channelProblems, guildsToLeave } from "./guard";
 
 const G = "100000000000000001";
 const ok = { guildId: G, isText: true, canSend: true };
@@ -33,5 +33,15 @@ describe("channelProblems", () => {
     expect(problems[1]).toMatch(/guild/);
     expect(problems[2]).toMatch(/テキスト/);
     expect(problems[3]).toMatch(/送信/);
+  });
+});
+
+describe("canUseCommand", () => {
+  const cfg = { guildId: G, ownerUserId: "100000000000000002" };
+  it("設定した guild の中の、自分だけが使える", () => {
+    expect(canUseCommand({ guildId: G, userId: "100000000000000002" }, cfg)).toBe(true);
+    expect(canUseCommand({ guildId: G, userId: "999" }, cfg)).toBe(false);
+    expect(canUseCommand({ guildId: "200", userId: "100000000000000002" }, cfg)).toBe(false);
+    expect(canUseCommand({ guildId: null, userId: "100000000000000002" }, cfg)).toBe(false);
   });
 });

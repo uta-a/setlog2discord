@@ -20,7 +20,11 @@ import { startSetlogSocket, type FatalReason, type SetlogSocket } from "./setlog
 import { openState } from "./state";
 import type { Notifier } from "./status";
 
-export type Receiver = { stop(): Promise<void> };
+export type Receiver = {
+  stop(): Promise<void>;
+  /** すぐつなぎ直す（/reconnect）。つながったら補完も走る。 */
+  reconnect(): "reconnecting" | "not-connected" | "halted";
+};
 
 const FATAL_TEXT: Record<FatalReason, string> = {
   auth: "setlog のトークンが失効した。受信を止めた。メール OTP で再登録して、Bot を再起動する",
@@ -113,6 +117,10 @@ export function startReceiver(
   );
 
   return {
+    reconnect() {
+      if (halted || !socket) return "halted";
+      return socket.reconnectNow() ? "reconnecting" : "not-connected";
+    },
     async stop() {
       clearInterval(retryTimer);
       socket?.stop();

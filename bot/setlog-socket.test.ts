@@ -222,6 +222,25 @@ describe("startSetlogSocket", () => {
     expect(conns).toBeGreaterThanOrEqual(3);
   });
 
+  it("reconnectNow ですぐつなぎ直し、onOpen を呼ぶ（バックオフしない）", async () => {
+    let conns = 0;
+    const { url } = await server({ onConnection: () => conns++ });
+    const r = recorder();
+    const s = start(url, r, { recycleMs: 0, backoffMs: () => 5000 });
+    await until(() => conns === 1 && r.events.includes("open"));
+    expect(s.reconnectNow()).toBe(true);
+    await until(() => r.events.filter((e) => e === "open").length === 2);
+    expect(conns).toBe(2);
+  });
+
+  it("つながっていないときの reconnectNow は何もしない（false）", async () => {
+    const { url } = await server({ status: () => 503 });
+    const r = recorder();
+    const s = start(url, r, { backoffMs: () => 5000 });
+    await new Promise((res) => setTimeout(res, 50));
+    expect(s.reconnectNow()).toBe(false);
+  });
+
   it("stop したら再接続しない", async () => {
     let conns = 0;
     const { url } = await server({ onConnection: () => conns++ });
