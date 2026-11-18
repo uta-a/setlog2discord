@@ -5,11 +5,15 @@
  * 使い方（リポジトリルートで。SETLOG_X_API_KEY が .env.local にあること）:
  *   pnpm exec tsx --env-file=.env.local tools/setlog-login.ts start  <email>
  *   pnpm exec tsx --env-file=.env.local tools/setlog-login.ts verify <email> <code>
+ *   pnpm exec tsx --env-file=.env.local tools/setlog-login.ts backup   # 鍵バックアップだけ取り直す
  *
  * verify が成功すると:
  *   - .env.local の SETLOG_TOKEN と SETLOG_USER_ID を書き換える（他の行は残す。権限 600）
  *   - 鍵バックアップがあれば .secrets.keybackup.json に保存する（権限 600）
  *   - 参加しているグループの名前と conversationId を表示する
+ *
+ * backup は今の SETLOG_TOKEN で鍵バックアップだけを取り直す（アプリでパスフレーズを
+ * 設定し直したとき用。アプリは端末の今の鍵を包み直すだけなので kid は変わらない）。
  *
  * トークン・鍵バックアップの中身は画面に出さない。パスフレーズは扱わない
  * （.secrets.passphrase には自分で書く）。
@@ -29,12 +33,30 @@ function writeSecretFile(path: string, content: string): void {
   chmodSync(path, 0o600);
 }
 
+async function saveKeyBackup(apiKey: string, token: string): Promise<void> {
+  const r = await fetch(`${SETLOG_BASE_URL}/auth/key-backup`, {
+    headers: { "jwt-key": token, "x-api-key": apiKey, "User-Agent": "okhttp/4.12.0" },
+  });
+  if (!r.ok) throw new Error(`鍵バックアップの取得に失敗: HTTP ${r.status}`);
+  const body = (await r.json()) as { backup?: { kid?: string } };
+  const backup = body.backup ?? body;
+  writeSecretFile(BACKUP_FILE, JSON.stringify({ backup }, null, 2) + "\n");
+  console.log(`  kid=${String((backup as { kid?: string }).kid ?? "-").slice(0, 8)} を ${BACKUP_FILE} に保存`);
+}
+
 async function main(): Promise<void> {
   const [cmd, email, code] = process.argv.slice(2);
   const apiKey = process.env.SETLOG_X_API_KEY;
   if (!apiKey) throw new Error("SETLOG_X_API_KEY が未設定（.env.local を --env-file で渡す）");
+  if (cmd === "backup") {
+    const token = process.env.SETLOG_TOKEN;
+    if (!token) throw new Error("SETLOG_TOKEN が未設定（先に verify を実行する）");
+    console.log("鍵バックアップを取り直す");
+    await saveKeyBackup(apiKey, token);
+    return;
+  }
   if (!email || (cmd !== "start" && cmd !== "verify") || (cmd === "verify" && !code)) {
-    throw new Error("使い方: setlog-login.ts start <email> | verify <email> <code>");
+    throw new Error("使い方: setlog-login.ts start <email> | verify <email> <code> | backup");
   }
 
   const anon = new SetlogClient({ apiKey });
@@ -52,18 +74,8 @@ async function main(): Promise<void> {
   console.log(`ログイン成功: userId=${user.userId.slice(0, 8)}… を ${ENV_FILE} に保存`);
 
   console.log(`鍵バックアップ: hasKeyBackup=${user.hasKeyBackup}`);
-  if (user.hasKeyBackup) {
-    const r = await fetch(`${SETLOG_BASE_URL}/auth/key-backup`, {
-      headers: { "jwt-key": user.token, "x-api-key": apiKey, "User-Agent": "okhttp/4.12.0" },
-    });
-    if (!r.ok) throw new Error(`鍵バックアップの取得に失敗: HTTP ${r.status}`);
-    const body = (await r.json()) as { backup?: { kid?: string } };
-    const backup = body.backup ?? body;
-    writeSecretFile(BACKUP_FILE, JSON.stringify({ backup }, null, 2) + "\n");
-    console.log(`  kid=${String((backup as { kid?: string }).kid ?? "-").slice(0, 8)} を ${BACKUP_FILE} に保存`);
-  } else {
-    console.log("  無い。アプリの設定で鍵バックアップ（パスフレーズ）を有効にしてから verify をやり直す");
-  }
+  if (user.hasKeyBackup) await saveKeyBackup(apiKey, user.token);
+  else console.log("  無い。アプリの設定で鍵バックアップ（パスフレーズ）を有効にしてから backup を実行する");
 
   const client = new SetlogClient({ apiKey, token: user.token });
   console.log("参加しているグループ（name | conversationId | roomType）:");
