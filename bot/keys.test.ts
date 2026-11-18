@@ -66,9 +66,21 @@ describe("loadKeyring", () => {
   });
 
   it("ファイルが無い・空・形が違えば KeyringError", () => {
-    const p = files({ pass: "x", empty: "  \n", bad: JSON.stringify({ backup: { kid: "k" } }) });
+    const p = files({ pass: "x", empty: "\n", bad: JSON.stringify({ backup: { kid: "k" } }) });
     expect(() => loadKeyring({ BOT_KEY_BACKUPS: p("none"), BOT_PASSPHRASE_FILE: p("pass") })).toThrow(/読めない/);
     expect(() => loadKeyring({ BOT_KEY_BACKUPS: p("bad"), BOT_PASSPHRASE_FILE: p("empty") })).toThrow(/空/);
     expect(() => loadKeyring({ BOT_KEY_BACKUPS: p("bad"), BOT_PASSPHRASE_FILE: p("pass") })).toThrow(/形が違う/);
+  });
+});
+
+describe("loadKeyring（レビューで直した点）", () => {
+  it("同じ kid のバックアップが 2 つあれば失敗する", () => {
+    const p = files({ pass: "s", a: JSON.stringify(makeBackup("s", "kid-a")), b: JSON.stringify(makeBackup("s", "kid-a")) });
+    expect(() => loadKeyring({ BOT_KEY_BACKUPS: `${p("a")},${p("b")}`, BOT_PASSPHRASE_FILE: p("pass") })).toThrow(/同じ kid/);
+  });
+
+  it("パスフレーズは末尾の改行だけを落とし、前後の空白は残す", () => {
+    const p = files({ pass: " s p \n", a: JSON.stringify(makeBackup(" s p ", "kid-a")) });
+    expect(loadKeyring({ BOT_KEY_BACKUPS: p("a"), BOT_PASSPHRASE_FILE: p("pass") }).size).toBe(1);
   });
 });

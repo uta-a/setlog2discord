@@ -23,7 +23,8 @@ const BackupFileSchema = z.object({
   backup: z.object({
     v: z.number(),
     alg: z.string(),
-    kdf: z.object({ name: z.string(), iterations: z.number().int().positive(), saltB64: z.string() }),
+    // 壊れたファイルで起動が長く固まらないよう上限を置く（実物は 60 万回）
+    kdf: z.object({ name: z.string(), iterations: z.number().int().positive().max(10_000_000), saltB64: z.string() }),
     aadB64: z.string(),
     ctB64: z.string(),
     kid: z.string().min(1),
@@ -46,7 +47,8 @@ export function loadKeyring(env: Record<string, string | undefined>): Keyring {
     .filter(Boolean);
   if (backupPaths.length === 0) throw new KeyringError("BOT_KEY_BACKUPS が空");
   const passPath = env.BOT_PASSPHRASE_FILE ?? ".secrets.passphrase";
-  const passphrase = readText(passPath, "パスフレーズのファイル").trim();
+  // 末尾の改行だけを落とす（前後の空白はパスフレーズの一部かもしれない）
+  const passphrase = readText(passPath, "パスフレーズのファイル").replace(/[\r\n]+$/, "");
   if (!passphrase) throw new KeyringError(`パスフレーズのファイルが空: ${passPath}`);
 
   const keyring = new Map<string, ReturnType<typeof recoverPrivateKeyFromBackup>["privateKey"]>();
@@ -65,8 +67,10 @@ export function loadKeyring(env: Record<string, string | undefined>): Keyring {
     }
     try {
       const { privateKey, kid } = recoverPrivateKeyFromBackup(parsed.data.backup, passphrase);
+      if (keyring.has(kid)) throw new KeyringError(`同じ kid の鍵バックアップが 2 つある: ${path}`);
       keyring.set(kid, privateKey);
-    } catch {
+    } catch (e) {
+      if (e instanceof KeyringError) throw e;
       throw new KeyringError(`鍵を復元できない（パスフレーズ違いの可能性）: ${path}`);
     }
   }
