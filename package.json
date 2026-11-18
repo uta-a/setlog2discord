@@ -4,8 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "start": "tsx --env-file-if-exists=.env bot/main.ts",
-    "dev": "tsx watch --env-file-if-exists=.env bot/main.ts",
+    "start": "tsx --env-file-if-exists=.env --env-file-if-exists=.env.local bot/main.ts",
+    "dev": "tsx watch --env-file-if-exists=.env --env-file-if-exists=.env.local bot/main.ts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },

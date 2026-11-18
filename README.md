@@ -13,12 +13,21 @@ setlog の友達の新着（2秒クリップとグループのテキストチャ
 
 ## 現在のフェーズ
 
-フェーズ0（API 解析）は完了。フェーズ1（Bot）の B0（Next.js を外して Bot の骨組みを作る）から始める。
+フェーズ0（API 解析）は完了。フェーズ1（Bot）は B0（骨組み）まで実装済みで、次は B1（setlog の WebSocket 受信）。
+
+## 起動
+
+1. Discord Developer Portal で Bot アプリを作り、自分のサーバーに招待する（権限：チャンネルを見る・メッセージを送信・ファイルを添付）
+2. `.env.local`（または `.env`）に `DISCORD_TOKEN=...` を書く。setlog の値（`SETLOG_TOKEN` など）も同じファイルに置く
+3. `bot.config.example.json` を `bot.config.json` にコピーし、guild・自分のユーザー ID・チャンネル ID・setlog の `conversationId` を書く
+4. `pnpm install` → `pnpm start`
+
+起動すると、設定外の guild から退出し、設定したチャンネルを確かめてから `#bot-status` に起動を通知する。
 
 ## ディレクトリ
 
 ```
-bot/            Discord Bot（B0 で追加予定）
+bot/            Discord Bot
 lib/setlog/     setlog の API クライアント、スキーマ、変換、E2EE 暗号
 docs/           設計書と API 解析メモ
 fixtures/       伏せ字済みのレスポンス例（コミットする）
