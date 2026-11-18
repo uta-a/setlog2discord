@@ -31,12 +31,16 @@ const FileSchema = z.object({
 
 const EnvSchema = z.object({
   DISCORD_TOKEN: z.string().min(1),
+  SETLOG_TOKEN: z.string().min(1),
+  SETLOG_USER_ID: z.string().min(1),
+  SETLOG_X_API_KEY: z.string().min(1),
 });
 
 export type GroupConfig = z.infer<typeof GroupSchema> & { chatConversationId: string };
 
 export type BotConfig = Omit<z.infer<typeof FileSchema>, "groups"> & {
   discordToken: string;
+  setlog: { token: string; userId: string; apiKey: string };
   groups: GroupConfig[];
 };
 
@@ -76,7 +80,13 @@ export function loadConfig(env: Record<string, string | undefined>, fileText: st
   const dup = all.find((id, i) => all.indexOf(id) !== i);
   if (dup) throw new ConfigError(`同じチャンネル ID が複数の用途に使われている: ${dup}`);
 
-  return { ...file.data, groups, discordToken: envParsed.data.DISCORD_TOKEN };
+  const e = envParsed.data;
+  return {
+    ...file.data,
+    groups,
+    discordToken: e.DISCORD_TOKEN,
+    setlog: { token: e.SETLOG_TOKEN, userId: e.SETLOG_USER_ID, apiKey: e.SETLOG_X_API_KEY },
+  };
 }
 
 /** 設定に出てくるチャンネル ID と用途の一覧（起動時の存在確認に使う）。 */

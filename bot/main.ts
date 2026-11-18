@@ -1,20 +1,21 @@
 /**
- * Bot のエントリポイント（B0：骨組み）。
+ * Bot のエントリポイント。
  *
  * 起動時に設定を読み、Discord に接続し、次を確かめてから #bot-status に起動を通知する。
  * - 設定した guild 以外に入っていたら退出する（以後も guildCreate で即退出）
  * - 設定したチャンネルが実在し、送信できる
+ * 確認が通ったら setlog の受信（B1）を始める。
  *
- * setlog の受信（B1）以降はここに足していく。
- *
- * 使い方: pnpm start（環境変数 DISCORD_TOKEN、設定ファイル bot.config.json）
- *   設定ファイルの場所は BOT_CONFIG で変えられる。
+ * 使い方: pnpm start
+ *   環境変数 DISCORD_TOKEN・SETLOG_TOKEN・SETLOG_USER_ID・SETLOG_X_API_KEY、設定ファイル bot.config.json。
+ *   設定ファイルの場所は BOT_CONFIG、状態ストアの場所は BOT_STATE（既定 data/state.sqlite）で変えられる。
  */
 import { readFileSync } from "node:fs";
 import { ChannelType, Client, Events, GatewayIntentBits, PermissionFlagsBits } from "discord.js";
 import { ConfigError, configuredChannels, loadConfig, type BotConfig } from "./config";
 import { channelProblems, guildsToLeave, type ChannelInfo } from "./guard";
 import { log } from "./log";
+import { startReceiver, type Receiver } from "./receiver";
 import { createNotifier } from "./status";
 
 function readConfig(): BotConfig {
@@ -50,7 +51,9 @@ async function channelInfo(client: Client, id: string): Promise<ChannelInfo | nu
 }
 
 async function main(): Promise<void> {
+  const startedAt = Date.now();
   const config = readConfig();
+  let receiver: Receiver | null = null;
   const client = new Client({ intents: [GatewayIntentBits.Guilds] });
   const notify = createNotifier(client, config.statusChannelId);
 
@@ -86,12 +89,17 @@ async function main(): Promise<void> {
 
     log.info(`準備完了（グループ ${config.groups.length} 件）`);
     await notify(`🟢 起動しました（グループ ${config.groups.length} 件）`);
+    receiver = startReceiver(config, notify, {
+      statePath: process.env.BOT_STATE ?? "data/state.sqlite",
+      startedAt,
+    });
   });
 
   let stopping = false;
   async function shutdown(code: number): Promise<void> {
     if (stopping) return;
     stopping = true;
+    await receiver?.stop().catch((e) => log.error(`受信の停止に失敗: ${String(e)}`));
     if (client.isReady() && code === 0) await notify("🔴 停止します");
     await client.destroy();
     process.exit(code);

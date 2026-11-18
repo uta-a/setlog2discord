@@ -14,7 +14,12 @@ const file = {
     },
   ],
 };
-const env = { DISCORD_TOKEN: "secret-token-value" };
+const env = {
+  DISCORD_TOKEN: "secret-token-value",
+  SETLOG_TOKEN: "setlog-secret",
+  SETLOG_USER_ID: "u-me",
+  SETLOG_X_API_KEY: "api-key-secret",
+};
 
 describe("loadConfig", () => {
   it("chatConversationId を省略すると conversationId と同じになる", () => {
@@ -30,6 +35,16 @@ describe("loadConfig", () => {
 
   it("トークンが無ければ項目名だけを出して失敗する", () => {
     expect(() => loadConfig({}, JSON.stringify(file))).toThrow(/DISCORD_TOKEN/);
+  });
+
+  it("setlog の環境変数を読み、欠けていれば項目名を出して失敗する", () => {
+    expect(loadConfig(env, JSON.stringify(file)).setlog).toEqual({
+      token: "setlog-secret",
+      userId: "u-me",
+      apiKey: "api-key-secret",
+    });
+    const { SETLOG_TOKEN: _drop, ...rest } = env;
+    expect(() => loadConfig(rest, JSON.stringify(file))).toThrow(/SETLOG_TOKEN/);
   });
 
   it("エラーメッセージにトークンの値を含めない", () => {

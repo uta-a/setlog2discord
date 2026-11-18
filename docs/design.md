@@ -65,6 +65,8 @@ setlog の友達の新着（2秒クリップとグループのテキストチャ
 - 他の action（`messageUpdate`、`messageDeleted`、`readReceipt`、`typing` など）は当面ログに残して無視する
 - サーバーは 30 秒ごとに ping を送る。90 秒以上 ping が来なければ切れたとみなして張り直す。ping を受け取り、接続時の HTTP 401（トークン失効）を通信断と区別するため、Node 組み込みの `WebSocket` ではなく `ws` パッケージを使う（[api.md 4.9](api.md)）
 - 再接続はアプリと同じバックオフ（1, 2, 4, 8, 16, 32 秒で頭打ち）。**close code `4403`（アカウントロック）を受けたら再接続せず、停止して通知する**
+- バックオフの回数は、接続が 30 秒以上続いてから切れたときだけ戻す（つないですぐ切られる状態で 1 秒ごとに叩き続けないため）
+- 401 と `4403` で受信を止めても、プロセスは終了しない（systemd の再起動で setlog への接続を繰り返さないため）
 
 **自分の発言は届かない**
 
@@ -224,8 +226,8 @@ Next.js 関連（`app/`、`lib/bff.ts`、`next.config.ts`、`AGENTS.md`）は削
 
 **フェーズ1：Bot**（完了条件：友達のクリップとテキストが Discord に届き、Discord から返信でき、再起動しても二重投稿しない）
 
-- [ ] B0：Next.js を外して Bot の骨組み（Discord 接続、guild 制限、設定、`#bot-status`）
-- [ ] B1：setlog の WebSocket 受信、再接続、REST 補完、状態ストア
+- [x] B0：Next.js を外して Bot の骨組み（Discord 接続、guild 制限、設定、`#bot-status`）
+- [x] B1：setlog の WebSocket 受信、再接続、REST 補完、状態ストア（受け取ったことをログに出すまで。状態ストアへの記録は B2・B3 で始める）
 - [ ] B2：クリップの復号と投稿
 - [ ] B3：テキストの転送（setlog → Discord）
 - [ ] B4：テキストの送信（Discord → setlog）
