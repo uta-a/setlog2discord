@@ -1,7 +1,7 @@
 /**
  * setlog からの受信（B1）を組み立てる：状態ストア＋ WebSocket ＋ REST 補完＋取り込み。
  *
- * - WebSocket がつながるたび（起動時・再接続時）に REST で補完する
+ * - WebSocket がつながるたび（起動時・再接続時）に REST で補完する。記録しない失敗が残っている間は 10 分ごとにも補完する
  * - トークン失効（接続時の 401・補完中の 401）と close 4403 では受信を止めて通知する。
  *   プロセスは止めない（systemd に再起動されて setlog に接続を繰り返さないため）
  *
@@ -35,7 +35,7 @@ const logOnly: MessageHandler = async (m) => {
 export function startReceiver(
   config: BotConfig,
   notify: Notifier,
-  opts: { statePath: string; startedAt: number; keyring: Keyring; postClip: PostClip },
+  opts: { statePath: string; startedAt: number; keyring: Keyring; postClip: PostClip; retryIntervalMs?: number },
 ): Receiver {
   const store = openState(opts.statePath);
   const setlog = new SetlogClient({ apiKey: config.setlog.apiKey, token: config.setlog.token });
@@ -87,6 +87,14 @@ export function startReceiver(
     }
   }
 
+  // 記録しない失敗（CDN・投稿の一時的な失敗）が残っている間は、WebSocket が切れなくても定期的に補完する
+  const retryTimer = setInterval(() => {
+    if (!halted && clipHandler.hasPending()) {
+      log.info("取りこぼしたクリップを拾い直すため補完する");
+      void backfill();
+    }
+  }, opts.retryIntervalMs ?? 10 * 60_000);
+
   socket = startSetlogSocket(
     { token: config.setlog.token },
     {
@@ -100,6 +108,7 @@ export function startReceiver(
 
   return {
     async stop() {
+      clearInterval(retryTimer);
       socket?.stop();
       socket = null;
       await ingest.idle();

@@ -12,7 +12,15 @@
  *   設定ファイルの場所は BOT_CONFIG、状態ストアの場所は BOT_STATE（既定 data/state.sqlite）で変えられる。
  */
 import { readFileSync } from "node:fs";
-import { ChannelType, Client, DiscordAPIError, Events, GatewayIntentBits, PermissionFlagsBits } from "discord.js";
+import {
+  ChannelType,
+  Client,
+  DiscordAPIError,
+  Events,
+  GatewayIntentBits,
+  MessageFlags,
+  PermissionFlagsBits,
+} from "discord.js";
 import { AttachmentTooLargeError, type PostClip } from "./clips";
 import { ConfigError, configuredChannels, loadConfig, type BotConfig } from "./config";
 import { channelProblems, guildsToLeave, type ChannelInfo } from "./guard";
@@ -59,7 +67,7 @@ function isTooLarge(e: unknown): boolean {
 }
 
 function clipPoster(client: Client): PostClip {
-  return async (channelId, content, file) => {
+  return async (channelId, content, file, nonce) => {
     const ch = await client.channels.fetch(channelId);
     if (!ch?.isSendable()) throw new Error("clips チャンネルに送信できない");
     try {
@@ -67,6 +75,10 @@ function clipPoster(client: Client): PostClip {
         content,
         files: [{ attachment: file.data, name: file.name }],
         allowedMentions: { parse: [] },
+        // 応答が失われて送り直したときに、Discord 側で同じクリップの二重投稿を弾く
+        nonce,
+        enforceNonce: true,
+        flags: MessageFlags.SuppressEmbeds,
       });
       return msg.id;
     } catch (e) {
