@@ -18,7 +18,6 @@ import {
   DiscordAPIError,
   Events,
   GatewayIntentBits,
-  InteractionContextType,
   ContainerBuilder,
   EmbedBuilder,
   escapeMarkdown,
@@ -26,6 +25,7 @@ import {
   type MessageCreateOptions,
   PermissionFlagsBits,
 } from "discord.js";
+import { RECONNECT_COMMAND } from "./commands";
 import { AttachmentTooLargeError, type PostEmbed } from "./posting";
 import { ConfigError, configuredChannels, loadConfig, type BotConfig } from "./config";
 import { canUseCommand, channelProblems, guildsToLeave, sendTarget, type ChannelInfo } from "./guard";
@@ -74,15 +74,6 @@ async function channelInfo(client: Client, id: string): Promise<ChannelInfo | nu
 function isTooLarge(e: unknown): boolean {
   return e instanceof DiscordAPIError && (e.status === 413 || e.code === 40005);
 }
-
-/** setlog にすぐつなぎ直すコマンド（スマホのアプリに配信先を取られたとき用）。 */
-const RECONNECT_COMMAND = {
-  name: "reconnect",
-  description: "setlog にすぐつなぎ直す（取りこぼし分も補完する）",
-  // サーバー管理者だけに見せる（実際に使えるのは ownerUserId だけ）
-  defaultMemberPermissions: PermissionFlagsBits.Administrator,
-  contexts: [InteractionContextType.Guild],
-};
 
 /** 投稿の左の色。tintColor が無い人の既定色。 */
 const DEFAULT_COLOR = 0x8a8f98;
@@ -245,12 +236,6 @@ async function main(): Promise<void> {
       await shutdown(1);
       return;
     }
-
-    // スラッシュコマンドは設定した guild にだけ登録する（全体には出さない）
-    await c.guilds.cache
-      .get(config.guildId)
-      ?.commands.set([RECONNECT_COMMAND])
-      .catch((e) => log.warn(`スラッシュコマンドの登録に失敗: ${e instanceof Error ? e.message : String(e)}`));
 
     log.info(`準備完了（グループ ${config.groups.length} 件）`);
     await notify(`起動しました（グループ ${config.groups.length} 件）`);
