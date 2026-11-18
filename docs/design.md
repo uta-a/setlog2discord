@@ -161,8 +161,8 @@ setlog の友達の新着（2秒クリップとグループのテキストチャ
 
 | テーブル | 中身 |
 | --- | --- |
-| `processed_messages` | setlog の `messageId`、`conversationId`、種別（clip / text）、`timestamp`、Discord のメッセージ ID、結果（posted / skipped / failed） |
-| `sent_messages` | Discord のメッセージ ID と、送信した setlog の `messageId` |
+| `processed_messages` | setlog の `messageId`、`conversationId`、種別（clip / text）、`timestamp`、Discord のメッセージ ID、結果（posted / skipped / failed）、処理した時刻 |
+| `sent_messages` | Discord のメッセージ ID と、送信した setlog の `messageId`、`conversationId`、送信した時刻 |
 | `cursors` | 会話ごとの最後に処理した `timestamp`（REST 補完の下限を決めるのに使う。未処理の判定には使わない） |
 
 復号した mp4 は Discord に投稿したら手元には残さない。ローカルに保存するかは、必要になったら決める。
