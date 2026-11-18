@@ -46,6 +46,13 @@ SIG_QUERY_RE = re.compile(r"([?&](?:sig|signature|token|key|expires|x-amz-[a-z-]
 # ヘッダーのうち常に潰すもの
 SECRET_HEADERS = {"jwt-key", "x-api-key", "authorization", "cookie", "set-cookie"}
 
+# キー名で常に潰すフィールド（値の形に関係なく REDACTED にする）
+# 構造・型は保つため文字列 "REDACTED" に置換する。
+SECRET_FIELDS = {
+    "devicetoken", "pushtoken", "fcmtoken", "apnstoken", "token",
+    "pin", "code",
+}
+
 
 def load_map() -> dict:
     if MAP_PATH.exists():
@@ -79,6 +86,10 @@ def walk(node, mapping: dict, in_headers: bool = False):
         for k, v in node.items():
             # headers ブロック内の秘匿ヘッダーは値ごと潰す
             if in_headers and isinstance(k, str) and k.lower() in SECRET_HEADERS:
+                result[k] = "REDACTED"
+                continue
+            # キー名が機密フィールドなら、値の中身に関係なく潰す
+            if isinstance(k, str) and k.lower() in SECRET_FIELDS and isinstance(v, str) and v:
                 result[k] = "REDACTED"
                 continue
             # "headers" キーの下に降りるときだけ in_headers を立てる

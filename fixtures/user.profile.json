@@ -1,0 +1,26 @@
+{
+  "success": true,
+  "user": {
+    "userId": "00000000-0000-4000-8000-000000000004",
+    "saju": null,
+    "name": "@",
+    "lastName": "@",
+    "pin": "REDACTED",
+    "avatarUrl": null,
+    "tintColor": null,
+    "mapCharacter": null,
+    "publicKey": "EV/EhaIj0XiOozgGy5QsfaKqpkHhJcC1incH96nMBSY=",
+    "kid": "OV05s1D88W5KUXJ7ImybMQ",
+    "backupEmail": "REDACTED",
+    "backupEmailVerified": true,
+    "backupEmailEnabled": true,
+    "hasKeyBackup": false,
+    "mutedConversations": [],
+    "blockedUsers": [],
+    "deviceToken": "REDACTED",
+    "region": "JP",
+    "language": "ja",
+    "timezone": "Asia/Tokyo",
+    "pushFrequency": 1
+  }
+}

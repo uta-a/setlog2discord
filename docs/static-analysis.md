@@ -447,6 +447,8 @@ if (str3 != null && !str3.isBlank()) iy2Var.v("jwt-key", str3);
 
 優先度順。すべて静的解析では確定できなかったもの。
 
+> **動的解析（2026-11-18）で大半を確定。** 結果は [api.md 第0節](api.md) と [design.md 14章](design.md)、実レスポンスは `fixtures/` を参照。主な確定：必須ヘッダーは `jwt-key` のみ（1）／メール OTP を curl で再現（2）／`user/profile` はトークン非返却＝ローテーションなし・JWT に `exp` なし（3,4）／ソロログは `collections` に含まれ DM は別経路（7）／動画 CDN は無認証200・1.43MB・Range206（13,14,15,17）。**静的の訂正**：メッセージの `media` は配列でなく**単一オブジェクト**、`permission` は `allow_saving`、日別は `beforeTimestamp` 形式と `startTimeInterval` 形式の両方が通る。
+
 ### 必須（方式 A ＋ A′ の成立条件）
 
 1. **`x-api-key: 7CApGF***` と `jwt-key: <token>` の 2 つだけで `/collections` が 200 を返すか。** `User-Agent` やその他のヘッダーを外しても通るか。→ 設計書 4 章 手順 4（ヘッダーを 1 つずつ外す）をそのまま実施。

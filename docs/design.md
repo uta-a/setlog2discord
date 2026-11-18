@@ -46,7 +46,7 @@ setlog のログ（毎時2秒の動画）を、PC やタブレットのブラウ
 
 MVP は A（使えなければ A′）で作り、フェーズ2 で B を重ねる。
 
-> **解析結果（2026-11-18、静的解析）**：採用は **A＋A′ のハイブリッド**に確定見込み。メタデータ（グループ・カレンダー・日別投稿）は方式 A（BFF 中継）で取れるが、**動画は X25519＋ChaCha20-Poly1305 の E2EE で、復号鍵が端末の AndroidKeyStore に固定（エクスポート不可）**のため方式 A では取得できず、A′（cutlog が端末で復号して BFF にアップロード）が必須。方式 C（Web SDK 直接）は不可（Firebase は FCM 専用、データは独自 REST）。詳細は [api.md](api.md) と [static-analysis.md](static-analysis.md)。動的解析で最終確定する。
+> **解析結果（2026-11-18、動的解析で確定）**：採用は **A＋A′ のハイブリッド**で確定。メタデータ（グループ・カレンダー・日別投稿）は方式 A（BFF 中継）で取れることを実機キャプチャ＋curl 再現で実証（**必須ヘッダーは `jwt-key` のみ**、`x-api-key` すら `/collections` では不要、署名・端末証明なし）。**動画は X25519＋ChaCha20-Poly1305 の E2EE で、復号鍵が端末の AndroidKeyStore に固定（エクスポート不可）**のため方式 A では取得できず、A′（cutlog が端末で復号して BFF にアップロード）が必須。方式 C（Web SDK 直接）は不可（Firebase は FCM 専用、データは独自 REST）。詳細は [api.md](api.md)・[static-analysis.md](static-analysis.md)・[dynamic-analysis.md](dynamic-analysis.md)。
 
 ## 4. API 解析計画
 
@@ -75,9 +75,9 @@ setlog のトークンは BFF だけが持ち、ブラウザには渡さない�
 1. ログイン API を BFF で再現できる場合：管理画面からメール OTP でログインし、`user.token` を取得
 2. SMS 認証や端末紐付けで再現できない場合：cutlog の Morphe パッチに「トークンを BFF に送る」ボタンを足し、`POST /api/admin/token` で登録（管理用の共有シークレットで保護）
 
-> **解析結果（2026-11-18）**：
-> - ログインは**メール OTP**（`auth/email/login/start` → `/verify`）。SMS は無い。BFF からの再現が可能な見込み（bot 対策・レート制限は動的確認）。認証ヘッダーは `jwt-key: <token>`（`Authorization: Bearer` ではない）＋固定値の `x-api-key`。
-> - **リフレッシュトークンは存在しない。** 下の「期限の5分前／401 でリフレッシュ」は成立しない。トークンの有効期限もコード上に無く、`GET user/profile` の応答に新 `token` が含まれるか（＝ローテーションするか）は動的確認。
+> **解析結果（2026-11-18、動的解析で確定）**：
+> - ログインは**メール OTP**（`auth/email/login/start` → `/verify`）。SMS は無い。**BFF からの再現を実測**（curl で `start`→`verify` が 200、`verify` 応答に `token`）。認証ヘッダーは `jwt-key: <token>`（`Authorization: Bearer` ではない）。**`x-api-key` は `/collections` では不要**だが login 等では必要な可能性があり送る。
+> - **リフレッシュトークンは存在しない。** トークンは **HS256 JWT で `exp` なし**、`GET user/profile` も `token` を返さない＝**ローテーションしない** → 実質長期有効。「期限の5分前／401 でリフレッシュ」は不成立。
 > - 失効時は**メール OTP をやり直す**しかない。
 
 **保管と更新**
@@ -157,6 +157,8 @@ type DayView = {
 日付と時間枠は setlog の表示に合わせて Asia/Tokyo で計算する。
 
 > **解析結果（2026-11-18）**：**「日」の境界は 0 時ではなく現地 04:00**（アプリは `getHour() < 4` のとき前日扱いし、`atTime(4,0)` から 24 時間を 1 日分として問い合わせる）。`hour` は API が返さないので `capturedAt`（＝`timestamp`）から 04:00 起点で算出する（`hour = ((timestamp - その日の04:00) / 3,600,000)`、0–23）。アプリは端末の `ZoneId.systemDefault()` を使うので、表示を一致させるには端末が Asia/Tokyo である必要がある。「API が時間枠を返すならその値を優先する」は不要（返らない）。
+>
+> **動的解析で確定（2026-11-18）**：メッセージの `media` は**配列でなく単一オブジェクト**（1 メッセージ＝1 クリップ）。`Clip` へのマッピングは `media.path`（CDN パス）・`media.mimeType`・`media.dimensions{width,height}`・`media.permission`（`allow_saving`）・`timestamp`→`capturedAt`/`date`/`hour`・`senderId`→`memberId`・`messageId`/`conversationId`→`sourceId`/`groupId` で行う。復号鍵は `keys[]` の `uid == 自分の userId` の項目。`durationMs` は API に無いので復号後の mp4 から求める。
 
 ## 8. 動画配信・再生
 
@@ -253,9 +255,11 @@ fixtures/       # 伏せ字済みのレスポンス例
 
 **フェーズ0：API 解析**（完了条件：`docs/api.md` に 6 操作分の仕様がある）
 
-- [ ] jadx でベース URL とバックエンドの種類を特定
-- [ ] Morphe で SSL pinning を外し、通信をキャプチャ
-- [ ] 必須ヘッダーと認証方式を確定し、方式 A / A′ / C を決める
+- [x] jadx でベース URL とバックエンドの種類を特定
+- [x] 通信をキャプチャ（SSL pinning は無し。`network_security_config` に `src="user"` を足した再パッチ＋mitmproxy で傍受）
+- [x] 必須ヘッダーと認証方式を確定し、方式を決める（**A＋A′ に確定**。必須は `jwt-key` のみ）
+
+フェーズ0 は完了。6 操作分の実レスポンスを `fixtures/` に伏せ字で保存済み。
 
 **フェーズ1：MVP**（完了条件：PC のブラウザで今日のログを連続再生できる）
 
@@ -285,13 +289,21 @@ fixtures/       # 伏せ字済みのレスポンス例
 - 動画は**mp4（progressive）**。ただし **E2EE 暗号文**で BFF 単独では復号できない。1 本のサイズは未計測
 - 拡大できない仕様が低解像度配信かは未確認（`media[].dimensions` に解像度だけ入る）
 
-**動的解析で残る未確定（優先順）**
+**動的解析（2026-11-18）で解決した項目**
 
-- `x-api-key`＋`jwt-key` だけで API が通るか（他ヘッダーを外して確認）
-- メール OTP を BFF から再現できるか（bot 対策・レート制限・IP 制限の有無）
-- `GET user/profile` がトークンをローテーションするか＝実質の有効期限
-- 動画 CDN（`media.newchatapi.com`）を無認証で GET できるか、1 本のサイズ・解像度
-- `/collections` にソロログが含まれるか、DM と混ざるか
+- ✅ 必須ヘッダーは `jwt-key` のみ（`x-api-key` すら `/collections` では不要、署名なし）
+- ✅ メール OTP を curl で再現し `token` を取得（bot 対策・レート制限は今回未発火）
+- ✅ `GET user/profile` は `token` を返さない＝ローテーションなし、JWT に `exp` なし＝実質長期有効
+- ✅ 動画 CDN は無認証 GET 200、約 1.43MB / 720p、`Range` 206 対応、`application/octet-stream`
+- ✅ ソロログは `collections` に含まれる（`type=collection`）。DM は別経路 `chat/conversations` で混ざらない
+- ✅ `media` は単一オブジェクト（静的の `media[]` は誤り）、`permission=allow_saving`
+
+**なお残る未確定**
+
+- bot 対策・レート制限・IP 制限の閾値（今回は少数リクエストで止まらず、本格的な負荷は未試験）
+- 他人のクリップの解像度・サイズ（自分の 720p / 1.43MB のみ実測）
+- `roomType=stack` や `view_once` 系 `permission` のレスポンス（未観測）
+- トークンの実失効（放置テスト未実施）
 
 **リスクと対応**
 

@@ -1,0 +1,50 @@
+{
+  "success": true,
+  "collections": [
+    {
+      "id": "00000000-0000-4000-8000-000000000003",
+      "name": "member-2",
+      "pin": "REDACTED",
+      "type": "collection",
+      "creatorId": "00000000-0000-4000-8000-000000000006",
+      "createdTimestamp": "1793691043969",
+      "updatedTimestamp": "1793787469660",
+      "maxParticipants": 3,
+      "participants": [
+        {
+          "userId": "00000000-0000-4000-8000-000000000006",
+          "name": "member-1",
+          "lastName": "member-1",
+          "avatarUrl": "ap/uploads/00000000-0000-4000-8000-REDACTED6/1779157703937-761cb848cede647b5b151bf177f1780e.heic",
+          "tintColor": "#1111D5D5F3F3FFFF",
+          "language": "ja",
+          "timezone": "Asia/Tokyo",
+          "region": "JP",
+          "shouldHideLocalTime": false,
+          "publicKey": "Ue+rsnI4jr52LB8vyBUCsxR4qLeUD6FRDZqsZaW6Ohg=",
+          "kid": null
+        }
+      ],
+      "lastReadTimestamp": 1794983885744,
+      "roomType": "log",
+      "roomLocked": false,
+      "memberProfiles": {}
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000001",
+      "name": "vlog",
+      "pin": "REDACTED",
+      "type": "collection",
+      "creatorId": "00000000-0000-4000-8000-000000000004",
+      "createdTimestamp": "1793650365728",
+      "updatedTimestamp": "1793653108741",
+      "maxParticipants": 1,
+      "participants": [],
+      "lastReadTimestamp": 0,
+      "roomType": "vlog",
+      "roomLocked": false,
+      "memberProfiles": {}
+    }
+  ],
+  "lastEvaluatedKey": null
+}

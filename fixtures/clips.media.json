@@ -1,0 +1,32 @@
+{
+  "_note": "動画メタのみ。暗号文本体はコミットしない。CDN ヘッダーは実測値。",
+  "media": {
+    "captions": [
+      {
+        "style": 0,
+        "text": "",
+        "time": "",
+        "translation": "{0, 0}"
+      }
+    ],
+    "captureCountryCode": "JP",
+    "captureUTCOffsetSeconds": 32400,
+    "dimensions": {
+      "height": 720,
+      "width": 1280
+    },
+    "mimeType": "video/mp4",
+    "path": "ap/uploads/00000000-0000-4000-8000-REDACTED6/1793787496066-fb28e0709fd9d265a83cb63920b0c2a9",
+    "permission": "allow_saving",
+    "region": "ap-northeast-2"
+  },
+  "cdn": {
+    "status": 200,
+    "auth": "不要(x-api-key/jwt-key なしで200)",
+    "contentType": "application/octet-stream",
+    "contentLength": 1434389,
+    "acceptRanges": "bytes",
+    "rangeStatus": 206,
+    "etag": "(実測で存在)"
+  }
+}

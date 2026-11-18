@@ -1,0 +1,65 @@
+{
+  "success": true,
+  "messages": [
+    {
+      "messageId": "00000000-0000-4000-8000-000000000002",
+      "conversationId": "00000000-0000-4000-8000-000000000003",
+      "senderId": "00000000-0000-4000-8000-000000000006",
+      "parentId": "",
+      "senderName": "",
+      "message": "",
+      "contentType": "video/mp4",
+      "envelope": null,
+      "keys": [
+        {
+          "alg": "X25519-HKDF-SHA256+CHACHA20-POLY1305",
+          "kid": "WQBKrMLHw9tOCRuoa8NOqQ",
+          "saltB64": "yNE03SYIdhX2KNJPSL+TmczY2lWwx3YfFPFQ2CIp2Ik=",
+          "senderKid": "WQBKrMLHw9tOCRuoa8NOqQ",
+          "senderPublicKey": "Ue+rsnI4jr52LB8vyBUCsxR4qLeUD6FRDZqsZaW6Ohg=",
+          "uid": "00000000-0000-4000-8000-000000000006",
+          "v": 1,
+          "wrappedB64": "YBu2LuaUGGpifc1YoEZSql665amu4ANrG5ELK69yGWZH17K6g1ujN6T/DmkzI6sZalKzwx41dSzvfxog"
+        },
+        {
+          "alg": "X25519-HKDF-SHA256+CHACHA20-POLY1305",
+          "kid": "UmX9U1c6PTSjZ_4f6kJzkA",
+          "saltB64": "smUNwOP+/O05UXf/Z4/g8EUiG27bKRMoAXzo07Bu8KY=",
+          "senderKid": "WQBKrMLHw9tOCRuoa8NOqQ",
+          "senderPublicKey": "Ue+rsnI4jr52LB8vyBUCsxR4qLeUD6FRDZqsZaW6Ohg=",
+          "uid": "00000000-0000-4000-8000-000000000004",
+          "v": 1,
+          "wrappedB64": "oo2Z0sk7DsVUAOAXfl2mY4u8KGFuBzKfisimk7NFWXg8XBycjYyxPOvOpa0Kcc2KHMYMl/mDCNf62PtM"
+        }
+      ],
+      "media": {
+        "captions": [
+          {
+            "style": 0,
+            "text": "",
+            "time": "",
+            "translation": "{0, 0}"
+          }
+        ],
+        "captureCountryCode": "JP",
+        "captureUTCOffsetSeconds": 32400,
+        "dimensions": {
+          "height": 720,
+          "width": 1280
+        },
+        "mimeType": "video/mp4",
+        "path": "ap/uploads/00000000-0000-4000-8000-REDACTED6/1793787496066-fb28e0709fd9d265a83cb63920b0c2a9",
+        "permission": "allow_saving",
+        "region": "ap-northeast-2"
+      },
+      "reactions": [],
+      "readBy": [
+        "00000000-0000-4000-8000-000000000006"
+      ],
+      "savedBy": [],
+      "timestamp": 1793787469660,
+      "isDeleted": false,
+      "type": "collection"
+    }
+  ]
+}

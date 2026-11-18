@@ -2,11 +2,25 @@
 
 フェーズ0 の成果物。完了条件は「6 操作分の仕様が埋まっていること」（[設計書 第13章](design.md)）。
 
-- 解析対象のアプリバージョン：`未記入`（例：1.2.3 / versionCode 123）
-- 解析日：`未記入`
-- 生のキャプチャは `captures/` に置く（git 管理外）。伏せ字にしたものだけを `fixtures/` に置く（[fixtures/README.md](../fixtures/README.md)）
+- 解析対象のパッケージ：`com.newchat.setlog`
+- 解析日：静的 2026-11-18（jadx）／**動的 2026-11-18（mitmproxy キャプチャ）**
+- 動的解析の手順とツールは [dynamic-analysis.md](dynamic-analysis.md)。生のキャプチャは `captures/`（git 管理外）、伏せ字済みだけ `fixtures/`（[fixtures/README.md](../fixtures/README.md)）
 
 詳細と根拠（ファイル:行）は [static-analysis.md](static-analysis.md) を参照。ここは要点のみ。状態：静的＝jadx で確認、動的＝キャプチャで確認、未＝未確認。
+
+## 0. 動的解析の確定結果（2026-11-18）
+
+実機（パッチ版で user CA を信頼させた setlog）を mitmproxy で傍受し、下記を実測で確定。詳細な数値は各節と `fixtures/` 参照。
+
+- **認証は `jwt-key` のみ必須**（外すと 401）。`x-api-key` は `/collections` では**強制されない**（外しても 200）。署名・端末証明なし → **方式 A（BFF 中継）がメタデータで成立**。
+- **トークンは HS256 JWT、payload は `{userId, iat}` のみで `exp` なし**。`GET user/profile` は `token` を返さず**ローテーションしない** → 実質長期有効（失効はサーバー側判定のみ）。
+- **ソロログは `GET collections` に含まれる**（`type=collection`, `roomType=log`/`vlog`）。**DM は別経路 `GET chat/conversations`**。`lastEvaluatedKey` は今回 null。
+- 日別は 2 形式が通る：アプリ既定は `?limit&beforeTimestamp`、**日レンジ `?startTimeInterval&endTimeInterval` も 200**。
+- **メッセージの `media` は配列でなく単一オブジェクト**（静的の `media[]` は誤り）。`keys[]` は per-recipient。`permission` は **`allow_saving`**。
+- カレンダー `collection/{id}/messageDaysInMonth` → `{success, collectionId, year, month, timeZone, days:[…]}`（**件数は返らない**）。
+- 動画 CDN は**無認証 GET 200**、`application/octet-stream`（E2EE 暗号文）、**約 1.43MB / 2 秒 720p**、`accept-ranges: bytes`（**Range 206 対応**）、etag あり。
+- 付随：`GET recent` / `GET auth/key-backup` / `POST auth/updatePublicKey` / `GET chat/message/participantKeys` / `GET chat/keyRequests` / `POST chat/message/updateReadTimestamp`。`POST auth/diagnostics` は **404**。
+- NSC：インストール済みビルドは user CA 非信頼（`system` ＋ `@raw/amazon_root_ca_1`、ピンニングなし）。傍受には `src="user"` を足した再パッチが必要だった。
 
 ## 1. バックエンドの種類
 
@@ -26,26 +40,27 @@
 | --- | --- | --- |
 | ログイン方式 | メール OTP（`auth/email/login/start`→`/verify`）、Google、パスキー。電話番号 SMS はなし | 静的 |
 | トークンの形式 | ログイン応答の `user.token`。`jwt-key` ヘッダーで送る。JWT か不透明かは未判別 | 静的 |
-| 有効期限 | コード上に期限チェックなし。`GET user/profile` が新 `token` を返すかは未確認（返すならローテーション、返さないなら無期限） | 未 |
+| 有効期限 | **JWT に `exp` なし**。`GET user/profile` は `token` を返さず**ローテーションしない** → 実質長期有効（失効はサーバー側判定のみ） | 動的 |
+| トークンの中身 | **HS256 JWT、payload は `{userId, iat}` のみ**（`decode_token.py` で確認） | 動的 |
 | リフレッシュトークン | 存在しない。失効時はメール OTP をやり直す経路になる | 静的 |
 | 端末紐付け | ヘッダーとしてはなし。ただし E2EE の端末鍵が AndroidKeyStore に固定されるため、動画の復号は実質端末依存 | 静的 |
-| BFF からログインを再現できるか | メール OTP なら再現可能の見込み（bot 対策・レート制限は要動的確認）。Google／パスキーは端末必須 | 未 |
+| BFF からログインを再現できるか | **メール OTP は再現可能を実測**（`start`→`verify` を curl で 200、`verify` 応答に `token`）。bot 対策・レート制限は今回は未発火。Google／パスキーは端末必須 | 動的 |
 
 ## 3. 必須ヘッダー
 
 ヘッダーを1つずつ外して再送し、結果を記録する（設計書 第4章 手順4）。
 
+`GET /collections` で各ヘッダーを 1 つずつ外して実測（curl、トークンはログイン直後の有効なもの）。
+
 | ヘッダー | 値の形（伏せ字） | 外したときの結果 | 必須か |
 | --- | --- | --- | --- |
-| `x-api-key` | 40 文字の固定値（バイトコード直書き） | 常に付く。API Gateway のキー | 静的（動作は未） |
-| `jwt-key` | `<token>`（`Bearer` なし） | 認証必須 API に付く | 静的（動作は未） |
-| `Content-Type` | `application/json` | GET でも付く | 静的 |
-| `User-Agent` | `okhttp/4.12.0`（既定） | アプリ独自 UA なし | 静的 |
-| アプリバージョン系 | ヘッダーにはなし（`POST auth/diagnostics` のボディにのみ入る） | — | 静的 |
-| 端末 ID 系 | ヘッダーにはなし | — | 静的 |
-| 署名・タイムスタンプ系 | なし（HMAC / SigV4 なし） | — | 静的 |
+| `jwt-key` | `<token>`（`Bearer` なし、169 文字の JWT） | **401** | **必須（動的）** |
+| `x-api-key` | 40 文字の固定値 | **200（通る）** | **`/collections` では不要（動的）**。login 等の事前認証 API では必要な可能性があり安全のため送る |
+| `Content-Type` | `application/json` | 200 | GET では不要（動的） |
+| `User-Agent` | `okhttp/4.12.0`（既定） | 任意値でも 200 | UA 検査なし（動的） |
+| 署名・タイムスタンプ系 | なし | — | なし（静的） |
 
-認証に使うのは `x-api-key`（固定）＋`jwt-key`（トークン）の 2 本。署名は無いので静的解析だけで再現できる見込み。各ヘッダーを 1 つずつ外して実際に何が必須かは動的解析で確定する（設計書 4 章 手順 4）。
+**結論（動的）：必須は `jwt-key` のみ。** 署名・端末証明がないため、`jwt-key`（＋念のため `x-api-key`）だけで BFF から叩ける。これで方式 A が成立。
 
 ## 4. 操作ごとの仕様
 
@@ -60,54 +75,57 @@
 
 ### 4.1 ログイン
 
-- リクエスト：`POST auth/email/login/start` `{email, language}` → `POST auth/email/login/verify` `{email, code, language}`
-- レスポンス：`{ "user": { …, "token": "<token>" } }`。`status: "needs_onboarding"` なら新規登録フロー
-- フィクスチャ：`auth.login.json`（未取得）
-- メモ：状態＝静的。OTP の再送制限・bot 対策はコード上に見えないが、サーバー側判定は動的確認
+- リクエスト：`POST auth/email/login/start` `{email, language}` → `POST auth/email/login/verify` `{email, code, language}`（どちらも 200 を実測）
+- レスポンス：`{ "user": { userId, name, lastName, pin, avatarUrl, region, publicKey, kid, backupEmail…, hasKeyBackup, language, timezone, deviceToken, token } }`。`token` が入る
+- フィクスチャ：[`auth.login.json`](../fixtures/auth.login.json)
+- メモ：状態＝動的。bot 対策・レート制限・IP 制限は今回は未発火（短時間に数回で止まらず）。`needs_onboarding` 等の分岐は未取得
 
 ### 4.2 トークン更新
 
 - リクエスト：`GET user/profile`（パラメータなし）
-- レスポンス：`{ "user": { …, "token"? } }`。`token` があれば差し替え、無ければ既存継続
-- フィクスチャ：`user.profile.json`（未取得）
-- メモ：状態＝静的。**応答に `token` が入るか**が有効期限の鍵。入らなければ無期限、入ればローテーション
+- レスポンス：`{ "user": { … } }`。**`token` は入らない**（実測）
+- フィクスチャ：[`user.profile.json`](../fixtures/user.profile.json)
+- メモ：状態＝動的。**`token` を返さない＝ローテーションしない**。JWT に `exp` も無いので実質無期限。失効時はメール OTP やり直し
 
 ### 4.3 グループ一覧
 
-- リクエスト：`GET collections`（`?lastEvaluatedKey=<opaque>` でページング）
-- レスポンス：`{ "collections": [ { id, participants[], name, type, roomType, maxParticipants, memberProfiles{}, … } ], "lastEvaluatedKey" }`
-- フィクスチャ：`groups.list.json`（未取得）
-- メモ：状態＝静的。`type`（conversation=DM / collection=グループ）と `roomType`（log / vlog / stack）の 2 軸。**ソロログがここに含まれるか**（participants が自分 1 人の会話として返るか）は動的確認
+- リクエスト：`GET collections`（`?lastEvaluatedKey=<opaque>` でページング。今回は `lastEvaluatedKey` が null）
+- レスポンス：`{ "success", "collections": [ { id, name, pin, type, creatorId, createdTimestamp, updatedTimestamp, maxParticipants, participants[{userId,name,lastName,avatarUrl,tintColor,language,timezone,region,publicKey,kid}], lastReadTimestamp, roomType, roomLocked, memberProfiles{} } ], "lastEvaluatedKey" }`
+- フィクスチャ：[`groups.list.json`](../fixtures/groups.list.json)
+- メモ：状態＝動的。**ソロログはここに含まれる**（`type=collection`, `roomType=log`/`vlog`, participants 0〜1）。**DM は混ざらず、別経路 `GET chat/conversations`**。`roomType` は `log`/`vlog` を観測（`stack` は未観測）
 
 ### 4.4 日付ごとの投稿（24 枠のクリップ一覧）
 
-- リクエスト：`GET chat/{collectionId}/messages?startTimeInterval=<ms>&endTimeInterval=<ms>`。`startTimeInterval` は**現地 04:00 起点**の日の開始、`end` は +86,400,000
-- レスポンス：`{ "messages": [ { messageId, senderId, timestamp, contentType, media[], keys[], envelope, mediaCipherV } ], "hasMore", "nextSinceTimestamp" }`
-- フィクスチャ：`days.today.json` / `days.past.json`（未取得）
-- メモ：状態＝静的。**時間枠（hour）は API が返さない**。`timestamp` から 04:00 起点で算出。タイムゾーンは端末の `ZoneId.systemDefault()`。未投稿枠は欠落するのでクライアントで 24 枠を埋める
+- リクエスト：2 形式が通る（実測）。**日レンジ**：`GET chat/{collectionId}/messages?startTimeInterval=<ms>&endTimeInterval=<ms>`（`start` は現地 04:00 起点、`end` は +86,400,000。200）。**アプリ既定（フィード）**：`GET chat/{collectionId}/messages?limit=40&beforeTimestamp=<ms>`
+- レスポンス：`{ "success", "messages": [ { messageId, conversationId, senderId, parentId, senderName, message, contentType, envelope, keys[], media, reactions[], readBy[], savedBy[], timestamp, isDeleted, type } ] }`
+- **重要差分**：`media` は**配列でなく単一オブジェクト** `{ captions[{style,text,time,translation}], captureCountryCode, captureUTCOffsetSeconds, dimensions{width,height}, mimeType, path, permission, region }`。静的の `media[]` / `mediaCipherV` / `hasMore` / `nextSinceTimestamp` は今回のレスポンスには無い
+- `keys[]`：per-recipient の `{ alg, kid, saltB64, senderKid, senderPublicKey, uid, v, wrappedB64 }`（自分宛は `uid == 自分の userId`）
+- フィクスチャ：[`days.past.json`](../fixtures/days.past.json)（クリップ 1 件）/ [`days.today.json`](../fixtures/days.today.json)（空の日 `messages:[]`）
+- メモ：状態＝動的。**時間枠（hour）は API が返さない**（`timestamp` から 04:00 起点で算出）。未投稿枠は欠落するのでクライアントで 24 枠を埋める
 
 ### 4.5 カレンダー
 
-- リクエスト：`GET collection/{collectionId}/messageDaysInMonth?year=YYYY&month=M&timeZone=Asia/Tokyo`（**単数形 `collection/`**、`month` は 1-12）
-- レスポンス：`{ "days": [1, 4, 5, …] }`（投稿がある日の整数配列**のみ。件数は返らない**）
-- フィクスチャ：`calendar.month.json`（未取得）
-- メモ：状態＝静的。月単位のみ。濃淡表示に件数が要るなら日別 API を叩いて数えるか、二値表示にする
+- リクエスト：`GET collection/{collectionId}/messageDaysInMonth?year=YYYY&month=M&timeZone=Asia/Tokyo`（**単数形 `collection/`**、`month` は 1-12。200 を実測）
+- レスポンス：`{ "success", "collectionId", "year", "month", "timeZone", "days": [3, 4, …] }`（投稿がある日の整数配列**のみ。件数は返らない**）
+- フィクスチャ：[`calendar.month.json`](../fixtures/calendar.month.json)
+- メモ：状態＝動的。月単位のみ。濃淡表示に件数が要るなら日別 API を叩いて数えるか、二値表示にする
 
 ### 4.6 動画取得
 
-- リクエスト：4.4 の `media[].path` を使い `GET https://media.newchatapi.com/<path>`（ヘッダー不要・署名なしの見込み）。中身は**暗号文**
+- リクエスト：4.4 の `media.path` を使い `GET https://media.newchatapi.com/<path>`（`path` の形は `ap/uploads/{senderId}/{timestamp}-{hash}`）。**認証ヘッダー不要で 200**（実測）。中身は**暗号文**
 - 復号：`keys[]` の自分宛（`uid == 自分の userId`）の項目から content key を開き、ChaCha20-Poly1305 で復号（第 4.7 節）
-- フィクスチャ：`clips.media.*`（暗号文はコミットしない。メタデータのみ）
+- フィクスチャ：[`clips.media.json`](../fixtures/clips.media.json)（暗号文本体はコミットしない。`media` メタと CDN ヘッダー実測値のみ）
 - メモ：下表。**暗号文なので `<video src>` に直接渡しても再生できない**
 
 | 項目 | 結果 | 状態 |
 | --- | --- | --- |
-| 形式 | mp4 / QuickTime（progressive）。HLS なし | 静的 |
-| URL の種類 | 署名なし・認証ヘッダー不要の見込み。ただし中身は E2EE 暗号文 | 静的（動作は未） |
-| 署名付き URL の有効期限 | 該当なし | — |
-| `Range` 対応 | CDN は対応の可能性。ただしストリーム暗号で部分復号できず実用性低 | 未 |
-| 1 本あたりのサイズ | 未（動的計測） | 未 |
-| 解像度（自分 / 他人） | `media[].dimensions` に解像度のみ。ビットレートは未計測。自他の差も未確認 | 未 |
+| 形式 | `media.mimeType = video/mp4`。CDN は `content-type: application/octet-stream`（暗号文）。HLS なし | 動的 |
+| URL の種類 | **署名なし・認証ヘッダー不要で 200**。中身は E2EE 暗号文 | 動的 |
+| 署名付き URL の有効期限 | 該当なし（署名なし） | 動的 |
+| `Range` 対応 | **`accept-ranges: bytes`、`Range: bytes=0-1023` → 206**。ただしストリーム暗号で部分復号は実用性低 | 動的 |
+| 1 本あたりのサイズ | **1,434,389 B ≒ 1.43 MB**（約 2 秒 / 720p の自分のクリップ 1 本） | 動的 |
+| 解像度 | `media.dimensions = {width:1280, height:720}`。`permission = allow_saving` | 動的 |
+| その他ヘッダー | `etag` あり。`content-length` あり | 動的 |
 | サムネイル | API になし。クライアントが動画から生成してキャッシュ | 静的 |
 
 ### 4.7 暗号化（E2EE）— 方式判定の根拠
@@ -127,7 +145,7 @@
 | **採用方式** | **A ＋ A′ のハイブリッド**（メタデータは BFF 中継、動画は cutlog から復号アップロード） |
 | 判定理由 | 認証はメール OTP で再現可能の見込みで端末証明なし。動画は AndroidKeyStore 保護の X25519 鍵でしか復号できない。よって「BFF がメタデータ、cutlog が端末で復号した mp4 をアップロード」が最小構成 |
 
-> この判定は静的解析ベース。動的解析（第 7 節）で「`x-api-key`＋`jwt-key` だけで `/collections` が通る」「メール OTP を BFF から再現できる」が確認できたら確定する。
+> **動的解析（2026-11-18）で確定。** `jwt-key` だけで `/collections` が 200（`x-api-key` すら不要）、メール OTP の `start`→`verify` を curl で再現し `token` を取得、さらに `collections` / `messageDaysInMonth` / `messages`（日レンジ）/ 動画 CDN を BFF 相当の curl で取得できた。動画のみ E2EE で方式 A′ が必要、という判定は変わらない。
 
 ## 6. 設計書への反映が必要な点
 
