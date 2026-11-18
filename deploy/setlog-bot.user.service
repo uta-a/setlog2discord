@@ -2,7 +2,7 @@
 #
 # 置き場所：~/.config/systemd/user/setlog-bot.service
 # ログインユーザーのまま ~/vscode/discord/bots/setlog から動かす（sudo 不要）。ログアウト中も動かすには
-# `loginctl enable-linger` が要る。秘密情報（.env.local・鍵バックアップ・パスフレーズ・bot.config.json）は
+# `loginctl enable-linger` が要る。秘密情報（.env・鍵バックアップ・パスフレーズ・bot.config.json）は
 # 置き場所の中に権限 600 で置く（置き場所は 700）。
 
 [Unit]
@@ -18,7 +18,7 @@ StartLimitBurst=5
 Type=simple
 WorkingDirectory=%h/vscode/discord/bots/setlog
 Environment=NODE_ENV=production
-ExecStart=%h/vscode/discord/bots/setlog/node_modules/.bin/tsx --env-file=.env.local bot/main.ts
+ExecStart=%h/vscode/discord/bots/setlog/node_modules/.bin/tsx --env-file=.env bot/main.ts
 # トークン失効（401）とアカウントロック（4403）では Bot はプロセスを残すので、再起動はされない
 Restart=on-failure
 RestartSec=30

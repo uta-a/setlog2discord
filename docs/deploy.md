@@ -54,24 +54,25 @@ setlog は同じアカウントの「最後に接続した 1 本」にしか新�
 
 | ファイル | 中身 |
 | --- | --- |
-| `.env.local` | `DISCORD_TOKEN`・`SETLOG_TOKEN`・`SETLOG_USER_ID`・`SETLOG_X_API_KEY` |
+| `.env` | `DISCORD_TOKEN`・`SETLOG_TOKEN`・`SETLOG_USER_ID`・`SETLOG_X_API_KEY`。Mac の `.env.local` を **`.env` という名前で**置く（サービスは `.env` だけを読む） |
 | `.secrets.keybackup.json` | setlog の鍵バックアップ |
 | `.secrets.passphrase` | 鍵バックアップのパスフレーズ |
 | `bot.config.json` | guild・チャンネル・グループの対応 |
 
 ```sh
 [Mac]    cd ~/Projects/setlog-webapp
-[Mac]    scp .env.local .secrets.keybackup.json .secrets.passphrase bot.config.json rakko-server:vscode/discord/bots/setlog/
+[Mac]    scp .env.local rakko-server:vscode/discord/bots/setlog/.env
+[Mac]    scp .secrets.keybackup.json .secrets.passphrase bot.config.json rakko-server:vscode/discord/bots/setlog/
 
 [server] cd ~/vscode/discord/bots/setlog
-[server] chmod 600 .env.local .secrets.keybackup.json .secrets.passphrase bot.config.json
+[server] chmod 600 .env .secrets.keybackup.json .secrets.passphrase bot.config.json
 [server] install -d -m 700 data
 ```
 
 鍵と設定を読めるかは、Discord と setlog につながずに確かめられる。
 
 ```sh
-[server] ./node_modules/.bin/tsx --env-file=.env.local -e 'import { readFileSync } from "node:fs"; import { loadKeyring } from "./bot/keys"; import { loadConfig } from "./bot/config"; console.log(loadKeyring(process.env).size, loadConfig(process.env, readFileSync("bot.config.json", "utf-8")).groups.length)'
+[server] ./node_modules/.bin/tsx --env-file=.env -e 'import { readFileSync } from "node:fs"; import { loadKeyring } from "./bot/keys"; import { loadConfig } from "./bot/config"; console.log(loadKeyring(process.env).size, loadConfig(process.env, readFileSync("bot.config.json", "utf-8")).groups.length)'
 ```
 
 ## 4. Mac の Bot を止めて、状態ストアを引き継ぐ
@@ -111,7 +112,7 @@ Mac で動いている Bot を止める（`pnpm start` のターミナルで Ctr
 `/reconnect` は Bot の起動時には登録しない（Discord に一度登録すれば残る。起動のたびに登録すると、再起動を繰り返したときに頻度制限で起動が数十秒遅れた）。初めて導入したときと、`bot/commands.ts` を変えたときだけ登録する。
 
 ```sh
-[server] cd ~/vscode/discord/bots/setlog && ./node_modules/.bin/tsx --env-file=.env.local tools/register-commands.ts
+[server] cd ~/vscode/discord/bots/setlog && ./node_modules/.bin/tsx --env-file=.env tools/register-commands.ts
 ```
 
 ## 6. 更新するとき
@@ -136,7 +137,8 @@ Mac で動いている Bot を止める（`pnpm start` のターミナルで Ctr
 | --- | --- |
 | 起動してすぐ止まる | `journalctl --user -u setlog-bot -n 50`。設定ファイル・鍵・パスフレーズの誤りは、その項目名が出る。10 分に 5 回落ちると systemd が止めるので、直したら `deploy/scripts/start.sh`（止められた状態も解除してから起動する） |
 | 「Used disallowed intents」で起動しない | Discord Developer Portal で Bot の MESSAGE CONTENT INTENT を有効にする |
-| `#bot-status` に「トークンが失効した」 | Mac で `tools/setlog-login.ts` の start・verify をやり直し、新しい `.env.local` と `.secrets.keybackup.json` を 3 の手順で置き直して `deploy/scripts/restart.sh` |
+| `#bot-status` に「トークンが失効した」 | Mac で `tools/setlog-login.ts` の start・verify をやり直し、新しい `.env.local`（サーバーでは `.env`）と `.secrets.keybackup.json` を 3 の手順で置き直して `deploy/scripts/restart.sh` |
+| 環境変数が「Too small」で起動しない | サービスが読む `.env` に値が入っていない。サーバーに `.env` があり、4 つの値が入っているか確かめる（`.env.local` は読まない） |
 | 新着が届かない | スマホで setlog アプリを開いていると Bot に届かない。10 分以内に戻るのを待つか、Discord で `/reconnect` |
 | Mac でも動かしてしまった | Mac の方を止める。Mac の状態ストアは使わない |
 | ログアウトすると止まる | `loginctl enable-linger`（sudo が要る場合あり） |
