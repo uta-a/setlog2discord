@@ -81,7 +81,7 @@ export function createClipHandler(deps: ClipDeps): ClipHandler {
 
   const handler = async (m: IncomingMessage): Promise<HandlerResult> => {
     const id = m.message.messageId;
-    const what = m.kind === "photo" ? "写真" : "クリップ";
+    const what = m.kind === "photo" ? "Photo" : "Clip";
     const where = `${m.group.name} msg=${short(id)}`;
     // 削除済みは本体の形が崩れていることがあるので、厳密な検証より先に見る
     if ((m.message as { isDeleted?: unknown }).isDeleted === true) {
@@ -91,7 +91,7 @@ export function createClipHandler(deps: ClipDeps): ClipHandler {
     const parsed = ClipPayloadSchema.safeParse(m.message);
     if (!parsed.success) {
       const keys = parsed.error.issues.map((i) => i.path.join(".") || "(root)").join(", ");
-      return out.failed(id, `${what}の形が想定と違う（${where}）: ${keys}`, `clip-shape:${keys}`);
+      return out.failed(id, `${what} has an unexpected shape (${where}): ${keys}`, `clip-shape:${keys}`);
     }
     const clip = parsed.data;
 
@@ -100,8 +100,8 @@ export function createClipHandler(deps: ClipDeps): ClipHandler {
       const bytes = await fetchWithRetry(clip.media.path);
       mp4 = decryptClip(clip, bytes, deps.keyring, deps.myUserId);
     } catch (e) {
-      if (e instanceof ClipDecryptError) return out.failed(id, `${what}を開けない（${where}）: ${e.message}`);
-      if (e instanceof MediaFetchError) return out.transient(id, `${what}の取得に失敗（${where}）: ${e.message}`);
+      if (e instanceof ClipDecryptError) return out.failed(id, `${what} could not be decrypted (${where}): ${e.message}`);
+      if (e instanceof MediaFetchError) return out.transient(id, `${what} could not be downloaded (${where}): ${e.message}`);
       throw e;
     }
 
@@ -124,8 +124,8 @@ export function createClipHandler(deps: ClipDeps): ClipHandler {
       log.info(`${what}を投稿（${where}）`);
       return out.done(id, { result: "posted", discordMessageId });
     } catch (e) {
-      if (e instanceof AttachmentTooLargeError) return out.failed(id, `${what}が Discord の添付の上限を超えた（${where}）`);
-      return out.transient(id, `${what}の投稿に失敗（${where}）: ${e instanceof Error ? e.message : String(e)}`);
+      if (e instanceof AttachmentTooLargeError) return out.failed(id, `${what} exceeds the Discord attachment size limit (${where})`);
+      return out.transient(id, `${what} could not be posted (${where}): ${e instanceof Error ? e.message : String(e)}`);
     }
   };
   return Object.assign(handler, { hasPending: out.hasPending });

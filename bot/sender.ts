@@ -74,26 +74,26 @@ export function createSender(deps: SenderDeps): Sender {
   return {
     async send(conversationId, text, opts = {}) {
       const body = text.trim();
-      if (!body) throw new SendError("空のメッセージは送れない");
-      if ([...body].length > MAX_TEXT) throw new SendError(`長すぎる（${MAX_TEXT} 文字まで）`);
+      if (!body) throw new SendError("empty messages cannot be sent");
+      if ([...body].length > MAX_TEXT) throw new SendError(`too long (max ${MAX_TEXT} characters)`);
 
       let keys: ParticipantKey[];
       let mine: { kid: string | null; publicKey: string };
       try {
         [keys, mine] = await Promise.all([participants(conversationId), myKey()]);
       } catch (e) {
-        if (e instanceof SetlogAuthError) throw new SendError("setlog のトークンが失効している");
-        throw new SendError("参加者の鍵を取れなかった（setlog に届かない）");
+        if (e instanceof SetlogAuthError) throw new SendError("setlog token has expired");
+        throw new SendError("could not fetch participant keys (setlog unreachable)");
       }
-      if (!mine.kid || !mine.publicKey) throw new SendError("自分の鍵が setlog に登録されていない");
+      if (!mine.kid || !mine.publicKey) throw new SendError("this account has no key registered on setlog");
       const me = { userId: deps.myUserId, kid: mine.kid, publicKey: mine.publicKey };
       const myPriv = deps.keyring.get(me.kid);
-      if (!myPriv) throw new SendError(`手元に今の鍵（kid=${me.kid.slice(0, 8)}）が無い。鍵バックアップを取り直す`);
+      if (!myPriv) throw new SendError(`the current key (kid=${me.kid.slice(0, 8)}) is not available locally. Fetch the key backup again`);
       const myPub = rawOfPublicKey(createPublicKey(myPriv)).toString("base64");
-      if (myPub !== me.publicKey) throw new SendError("手元の鍵が setlog に登録された公開鍵と合わない");
+      if (myPub !== me.publicKey) throw new SendError("the local key does not match the public key registered on setlog");
 
       const others = keys.filter((k) => k.userId !== deps.myUserId);
-      if (others.length === 0) throw new SendError("このグループに友達がいない");
+      if (others.length === 0) throw new SendError("this group has no other members");
       const recipients = [...others, me].map((k) => ({ uid: k.userId, kid: k.kid, publicKeyB64: k.publicKey }));
       const messageId = randomUUID();
       const { envelope, keys: wrapped } = encryptText({
@@ -112,9 +112,9 @@ export function createSender(deps: SenderDeps): Sender {
         // 鍵が古かった可能性があるので、次は取り直す
         cache.delete(conversationId);
         myKeyCache = null;
-        if (e instanceof SetlogAuthError) throw new SendError("setlog のトークンが失効している");
+        if (e instanceof SetlogAuthError) throw new SendError("setlog token has expired");
         log.warn(`setlog への送信に失敗: ${e instanceof Error ? e.message : String(e)}`);
-        throw new SendError("setlog への送信に失敗した");
+        throw new SendError("failed to send to setlog");
       }
       // 自分宛も入れている（自分のアプリで履歴を開けるように。アプリも自分を含めて送っている）
       const reply = opts.parentId ? `、返信先 ${opts.parentId.slice(0, 8)}` : "";
@@ -136,7 +136,7 @@ export function resolveParent(
 ): string | undefined {
   if (!replyToDiscordId) return undefined;
   const parent = lookup(replyToDiscordId);
-  if (!parent) throw new SendError("返信先が setlog のメッセージではない（返信をやめて送り直す）");
-  if (parent.conversationId !== conversationId) throw new SendError("返信先が別の会話のメッセージ");
+  if (!parent) throw new SendError("the replied-to message is not a setlog message (send it without replying)");
+  if (parent.conversationId !== conversationId) throw new SendError("the replied-to message belongs to another conversation");
   return parent.messageId;
 }

@@ -67,7 +67,7 @@ describe("テキストのハンドラ", () => {
     expect(await setup("x", {}, { isDeleted: true }).run()).toEqual({ result: "skipped" });
     const b = setup("ひみつ", { keyring: new Map() });
     expect(await b.run()).toEqual({ result: "failed" });
-    expect(b.notes[0]).toMatch(/開けない/);
+    expect(b.notes[0]).toMatch(/could not be decrypted/);
     expect(b.notes.join()).not.toMatch(/ひみつ/);
   });
 

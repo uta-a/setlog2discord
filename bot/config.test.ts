@@ -103,7 +103,7 @@ describe("configuredChannels", () => {
     const f = { ...file, groups: [{ ...file.groups[0], chatChannelId: file.groups[0].clipsChannelId }] };
     expect(configuredChannels(loadConfig(env, JSON.stringify(f)))).toEqual([
       { id: "100000000000000003", purpose: "bot-status" },
-      { id: "100000000000000004", purpose: "友達 のクリップとチャット" },
+      { id: "100000000000000004", purpose: "友達 clips and chat" },
     ]);
   });
 });

@@ -59,7 +59,7 @@ export function createTextHandler(deps: TextDeps): TextHandler {
     const parsed = TextPayloadSchema.safeParse(m.message);
     if (!parsed.success) {
       const keys = parsed.error.issues.map((i) => i.path.join(".") || "(root)").join(", ");
-      return out.failed(id, `テキストの形が想定と違う（${where}）: ${keys}`, `text-shape:${keys}`);
+      return out.failed(id, `Text has an unexpected shape (${where}): ${keys}`, `text-shape:${keys}`);
     }
     const msg = parsed.data;
 
@@ -67,7 +67,7 @@ export function createTextHandler(deps: TextDeps): TextHandler {
     try {
       text = decryptTextMessage(msg, deps.keyring, deps.myUserId);
     } catch (e) {
-      if (e instanceof TextDecryptError) return out.failed(id, `テキストを開けない（${where}）: ${e.message}`);
+      if (e instanceof TextDecryptError) return out.failed(id, `Text could not be decrypted (${where}): ${e.message}`);
       throw e;
     }
 
@@ -90,7 +90,7 @@ export function createTextHandler(deps: TextDeps): TextHandler {
       log.info(`テキストを転送（${where}${replyTo ? "、返信" : ""}）`);
       return out.done(id, { result: "posted", discordMessageId });
     } catch (e) {
-      return out.transient(id, `テキストの転送に失敗（${where}）: ${e instanceof Error ? e.message : String(e)}`);
+      return out.transient(id, `Text could not be forwarded (${where}): ${e instanceof Error ? e.message : String(e)}`);
     }
   };
   return Object.assign(handler, { hasPending: out.hasPending });

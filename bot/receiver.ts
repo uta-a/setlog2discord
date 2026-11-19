@@ -35,8 +35,8 @@ export type Receiver = {
 };
 
 const FATAL_TEXT: Record<FatalReason, string> = {
-  auth: "setlog のトークンが失効した。受信を止めた。メール OTP で再登録して、Bot を再起動する",
-  locked: "setlog から close 4403（アカウントロックの可能性）。受信を止めた。アプリで状態を確かめる",
+  auth: "setlog token expired. Receiving stopped. Log in again with the email OTP and restart the bot.",
+  locked: "setlog closed the connection with 4403 (the account may be locked). Receiving stopped. Check the account in the app.",
 };
 
 export function startReceiver(
@@ -111,7 +111,7 @@ export function startReceiver(
         halt("auth");
       } else if (e instanceof SetlogSchemaError) {
         log.warn(`REST 補完：形が想定と違う（${e.endpoint}）`);
-        void notify("API 仕様変更の可能性（REST messages の外側の形）。補完できなかった");
+        void notify("Possible API change (shape of REST messages response). Could not fetch missed messages.");
       } else {
         log.warn(`REST 補完に失敗: ${e instanceof Error ? e.message : String(e)}`);
       }
@@ -134,14 +134,14 @@ export function startReceiver(
       },
       onFrame: (text) => ingest.onFrame(text),
       onFatal: halt,
-      onDownTooLong: () => void notify("setlog の WebSocket に 5 分以上つながっていない。再接続を続けている"),
-      onRecovered: () => void notify("setlog の WebSocket に再接続した"),
+      onDownTooLong: () => void notify("setlog WebSocket has been disconnected for over 5 minutes. Still retrying."),
+      onRecovered: () => void notify("Reconnected to setlog WebSocket."),
     },
   );
 
   return {
     async sendText(conversationId, text, discordMessageId, replyToDiscordId) {
-      if (halted) throw new SendError("受信が止まっている（#bot-status の通知を確認する）");
+      if (halted) throw new SendError("receiving is stopped (see #bot-status)");
       const parentId = resolveParent((id) => store.setlogMessageOf(id), replyToDiscordId, conversationId);
       const { messageId } = await sender.send(conversationId, text, { parentId });
       try {

@@ -49,16 +49,16 @@ export function parseFrame(text: string): Frame {
   try {
     json = JSON.parse(text);
   } catch {
-    return { kind: "invalid", detail: "JSON として読めない" };
+    return { kind: "invalid", detail: "not valid JSON" };
   }
   const frame = FrameSchema.safeParse(json);
-  if (!frame.success) return { kind: "invalid", detail: `フレームの形が違う: ${issueKeys(frame.error)}` };
+  if (!frame.success) return { kind: "invalid", detail: `unexpected frame shape: ${issueKeys(frame.error)}` };
 
   const { action, data } = frame.data;
   if (action !== "newMessage") return { kind: "other", action };
 
   const msg = parseMessageHead(data);
-  if (!msg.success) return { kind: "invalid", action, detail: `項目が合わない: ${issueKeys(msg.error)}` };
+  if (!msg.success) return { kind: "invalid", action, detail: `unexpected fields: ${issueKeys(msg.error)}` };
   return { kind: "message", message: msg.data };
 }
 

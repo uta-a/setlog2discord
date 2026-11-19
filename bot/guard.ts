@@ -28,10 +28,10 @@ export function channelProblems(
 ): string[] {
   const problems: string[] = [];
   for (const { id, purpose, info } of channels) {
-    if (!info) problems.push(`${purpose}（${id}）が見つからない、または Bot から見えない`);
-    else if (info.guildId !== guildId) problems.push(`${purpose}（${id}）が設定した guild のチャンネルではない`);
-    else if (!info.isText) problems.push(`${purpose}（${id}）がテキストチャンネルではない`);
-    else if (!info.canSend) problems.push(`${purpose}（${id}）に Bot が送信できない（権限を確認）`);
+    if (!info) problems.push(`${purpose} (${id}) not found or not visible to the bot`);
+    else if (info.guildId !== guildId) problems.push(`${purpose} (${id}) is not in the configured guild`);
+    else if (!info.isText) problems.push(`${purpose} (${id}) is not a text channel`);
+    else if (!info.canSend) problems.push(`${purpose} (${id}): the bot cannot send messages (check permissions)`);
   }
   return problems;
 }

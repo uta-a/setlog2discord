@@ -148,7 +148,7 @@ export function createOutcomes(notify: Notifier): Outcomes {
       log.warn(text);
       if (!pending.has(id)) {
         pending.add(id);
-        void notify(`${text}。5 分ごとに再試行する`);
+        void notify(`${text}. Retrying every 5 minutes.`);
       }
       return undefined;
     },

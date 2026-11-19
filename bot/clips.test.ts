@@ -132,7 +132,7 @@ describe("クリップのハンドラ", () => {
   it("kid の鍵が無ければ failed で記録して通知する", async () => {
     const { run, notes } = setup({ keyring: new Map() });
     expect(await run()).toEqual({ result: "failed" });
-    expect(notes[0]).toMatch(/開けない/);
+    expect(notes[0]).toMatch(/could not be decrypted/);
   });
 
   it("形が違えば failed で、キー名だけを通知する", async () => {
@@ -155,7 +155,7 @@ describe("クリップのハンドラ", () => {
     expect(fetches()).toBe(4);
     expect(await run()).toBeUndefined();
     expect(notes.length).toBe(1);
-    expect(notes[0]).toMatch(/5 分ごとに再試行/);
+    expect(notes[0]).toMatch(/Retrying every 5 minutes/);
   });
 
   it("Discord への投稿失敗は記録しない。添付の上限超えは failed", async () => {
