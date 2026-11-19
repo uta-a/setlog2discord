@@ -73,6 +73,17 @@ describe("取り込み（WebSocket）", () => {
     expect(seen).toEqual([]);
   });
 
+  it("除外する人の投稿は、クリップ・写真・音声・テキストのどれも捨てる（記録もしない）", async () => {
+    const { ingest, seen, store } = setup({ ignoredSenderIds: ["u-ignored"] });
+    ingest.onFrame(frame(msg("i1", { senderId: "u-ignored" })));
+    ingest.onFrame(frame(msg("i2", { senderId: "u-ignored", contentType: "video/mp4", type: "collection" })));
+    ingest.onFrame(frame(msg("i3", { senderId: "u-ignored", contentType: "audio/mp4", type: "snap" })));
+    ingest.onFrame(frame(msg("ok", { contentType: "image/jpeg", type: "snap" })));
+    await ingest.idle();
+    expect(seen.map((m) => m.message.messageId)).toEqual(["ok"]);
+    expect(store.isProcessed("i1")).toBe(false);
+  });
+
   it("写真は photo としてハンドラに渡し、状態ストアには clip として記録する（表の種類は clip・text だけ）", async () => {
     const { ingest, seen, store } = setup();
     ingest.onFrame(frame(msg("p1", { contentType: "image/jpeg", type: "snap" })));
@@ -241,6 +252,14 @@ describe("REST の補完", () => {
     await second.ingest.idle();
     expect(second.seen.map((m) => m.message.messageId)).toEqual(["while-down"]);
     expect(store.watchStart("conv-1")).toBe(START);
+  });
+
+  it("補完でも除外する人の投稿は捨てる", async () => {
+    const { ingest, seen, rest } = setup({ ignoredSenderIds: ["u-ignored"] });
+    rest.push(msg("i1", { senderId: "u-ignored" }), msg("ok"));
+    await ingest.backfill();
+    await ingest.idle();
+    expect(seen.map((m) => m.message.messageId)).toEqual(["ok"]);
   });
 
   it("自分の発言は捨てる", async () => {
