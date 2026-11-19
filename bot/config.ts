@@ -27,6 +27,8 @@ const FileSchema = z.object({
   ownerUserId: Snowflake,
   statusChannelId: Snowflake,
   groups: z.array(GroupSchema).min(1),
+  /** 投稿を Discord に流さない setlog のユーザー ID（全グループ・全種類）。省略時は空。tools/list-members.ts で調べる */
+  ignoredSenderIds: z.array(z.string().min(1)).default([]),
 });
 
 const EnvSchema = z.object({

@@ -28,6 +28,13 @@ describe("loadConfig", () => {
     expect(c.discordToken).toBe("secret-token-value");
   });
 
+  it("除外する人（ignoredSenderIds）は省略すると空、指定すればそれを使う", () => {
+    expect(loadConfig(env, JSON.stringify(file)).ignoredSenderIds).toEqual([]);
+    const f = { ...file, ignoredSenderIds: ["u-x", "u-y"] };
+    expect(loadConfig(env, JSON.stringify(f)).ignoredSenderIds).toEqual(["u-x", "u-y"]);
+    expect(() => loadConfig(env, JSON.stringify({ ...file, ignoredSenderIds: [""] }))).toThrow(/ignoredSenderIds/);
+  });
+
   it("chatConversationId を指定すればそれを使う", () => {
     const f = { ...file, groups: [{ ...file.groups[0], chatConversationId: "conv-chat" }] };
     expect(loadConfig(env, JSON.stringify(f)).groups[0].chatConversationId).toBe("conv-chat");

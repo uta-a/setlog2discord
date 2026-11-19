@@ -2,6 +2,7 @@
   "guildId": "000000000000000000",
   "ownerUserId": "000000000000000000",
   "statusChannelId": "000000000000000000",
+  "ignoredSenderIds": [],
   "groups": [
     {
       "name": "グループ名",

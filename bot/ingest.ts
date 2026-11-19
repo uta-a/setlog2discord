@@ -2,7 +2,7 @@
  * setlog から届いたメッセージの取り込み（設計書4章）。WebSocket のフレームと REST の補完を同じ経路に通す。
  *
  * 1. 設定に無い会話（ソロログ・DM・別グループ）は黙って捨てる
- * 2. 送信者が自分のものは捨てる（REST の補完には自分の発言も入るため）
+ * 2. 送信者が自分のものと、除外する人（ignoredSenderIds）のものは捨てる（REST の補完には自分の発言も入るため）
  * 3. クリップ・テキスト以外は捨てる
  * 4. 会話ごとに直列で処理する。messageId が処理済みなら捨て、ハンドラに渡し、結果を状態ストアに記録する
  *
@@ -33,6 +33,8 @@ export type MessageHandler = (m: IncomingMessage) => Promise<HandlerResult>;
 export type IngestOptions = {
   store: StateStore;
   myUserId: string;
+  /** 投稿を流さない setlog のユーザー ID。 */
+  ignoredSenderIds?: readonly string[];
   groups: GroupConfig[];
   handler: MessageHandler;
   notify: Notifier;
@@ -64,6 +66,7 @@ export function createIngest(opts: IngestOptions): Ingest {
     byConversation.set(g.chatConversationId, g);
   }
 
+  const ignored = new Set(opts.ignoredSenderIds ?? []);
   const queues = new Map<string, Promise<void>>();
   const notifiedSchema = new Set<string>();
 
@@ -97,7 +100,7 @@ export function createIngest(opts: IngestOptions): Ingest {
   function enqueue(message: MessageHead, source: "ws" | "rest"): void {
     const group = byConversation.get(message.conversationId);
     if (!group) return;
-    if (message.senderId === opts.myUserId) return;
+    if (message.senderId === opts.myUserId || ignored.has(message.senderId)) return;
     const kind = messageKind(message);
     if (kind === "other") {
       log.info(`未対応の種類を無視（${source} msg=${short(message.messageId)}）`);

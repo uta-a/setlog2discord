@@ -81,6 +81,7 @@ export function startReceiver(
   const ingest = createIngest({
     store,
     myUserId: config.setlog.userId,
+    ignoredSenderIds: config.ignoredSenderIds,
     groups: config.groups,
     handler: (m) => (m.kind === "text" ? textHandler(m) : clipHandler(m)),
     notify,
