@@ -45,6 +45,7 @@ describe("テキストのハンドラ", () => {
     const p = posts[0];
     expect(p.channelId).toBe("100000000000000005");
     expect([p.authorName, p.description, p.groupName, p.color]).toEqual(["たろう", "今どこ？", "友達", 0x123456]);
+    expect(p.authorId).toBe("u-friend");
     expect(p.timestamp).toBe(Date.UTC(2026, 10, 18, 13, 5));
     expect(p.replyTo).toBeUndefined();
     expect(p.video).toBeUndefined();

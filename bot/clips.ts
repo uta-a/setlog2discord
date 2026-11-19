@@ -113,6 +113,7 @@ export function createClipHandler(deps: ClipDeps): ClipHandler {
         m.group.clipsChannelId,
         {
           layout: "clip",
+          authorId: clip.senderId,
           authorName: author.name,
           ...(caption ? { caption } : {}),
           ...(m.kind === "audio" ? { asFile: true } : {}),

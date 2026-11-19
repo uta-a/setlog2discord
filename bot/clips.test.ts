@@ -86,7 +86,8 @@ describe("クリップのハンドラ", () => {
     expect(posts.length).toBe(1);
     const p = posts[0];
     expect(p.channelId).toBe("100000000000000004");
-    expect(Object.keys(p).sort()).toEqual(["authorName", "avatar", "channelId", "color", "layout", "nonce", "video"]);
+    expect(Object.keys(p).sort()).toEqual(["authorId", "authorName", "avatar", "channelId", "color", "layout", "nonce", "video"]);
+    expect(p.authorId).toBe("u-friend");
     expect([p.authorName, p.color]).toEqual(["たろう", 0x65ea7b]);
     expect(p.avatar).toEqual({ name: "avatar.jpg", data: JPEG });
     expect(p.video.name).toBe("setlog-20261118-2205-msg-1.mp4");
