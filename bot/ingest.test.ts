@@ -172,6 +172,7 @@ describe("REST の補完", () => {
 
   it("cursor があれば 24 時間前までさかのぼり、処理済みは飛ばす", async () => {
     const { ingest, seen, rest, store } = setup();
+    store.ensureWatchStart("conv-1", START - 48 * HOUR); // ずっと前から見ている会話
     store.recordProcessed({ messageId: "done", conversationId: "conv-1", kind: "text", timestamp: START, result: "posted" });
     rest.push(
       msg("done", { timestamp: START }),
@@ -185,6 +186,7 @@ describe("REST の補完", () => {
 
   it("テキストを 1 件も記録していない会話では、cursor があっても起動時刻より前のテキストを流さない", async () => {
     const { ingest, seen, rest, store } = setup();
+    store.ensureWatchStart("conv-1", START - 48 * HOUR); // ずっと前から見ている会話
     store.recordProcessed({ messageId: "clip0", conversationId: "conv-1", kind: "clip", timestamp: START, result: "posted" });
     rest.push(
       msg("old-text", { timestamp: START - HOUR }),
@@ -198,6 +200,7 @@ describe("REST の補完", () => {
 
   it("テキストを記録したあとも、初めて記録したテキストより前のテキストは流さない（B3 を始める前の分）", async () => {
     const { ingest, seen, rest, store } = setup();
+    store.ensureWatchStart("conv-1", START - 48 * HOUR); // ずっと前から見ている会話
     store.recordProcessed({ messageId: "t0", conversationId: "conv-1", kind: "text", timestamp: START, result: "posted" });
     store.recordProcessed({ messageId: "t1", conversationId: "conv-1", kind: "text", timestamp: START + 3 * HOUR, result: "posted" });
     rest.push(
@@ -208,6 +211,36 @@ describe("REST の補完", () => {
     await ingest.backfill();
     await ingest.idle();
     expect(seen.map((m) => m.message.messageId).sort()).toEqual(["missed", "old-clip"]);
+  });
+
+  it("見始める前のものは、cursor の 24 時間前より新しくても流さない（会話を変えた直後の /reconnect）", async () => {
+    // 起動後に WebSocket で 1 件記録して cursor ができ、そのあと補完すると、前日の分まで流れていた（2026-11-19）
+    const { ingest, seen, rest, store } = setup();
+    store.recordProcessed({ messageId: "ws-clip", conversationId: "conv-1", kind: "clip", timestamp: START + 9 * HOUR, result: "posted" });
+    rest.push(
+      msg("yesterday-clip", { timestamp: START - 5 * HOUR, contentType: "video/mp4" }),
+      msg("yesterday-photo", { timestamp: START - 4 * HOUR, contentType: "image/jpeg", type: "snap" }),
+      msg("missed-clip", { timestamp: START + HOUR, contentType: "video/mp4" }),
+    );
+    await ingest.backfill();
+    await ingest.idle();
+    expect(seen.map((m) => m.message.messageId)).toEqual(["missed-clip"]);
+  });
+
+  it("見始めた時刻は再起動しても残り、止まっていた間の分は流す", async () => {
+    const store = openState(":memory:");
+    const first = setup({ store });
+    await first.ingest.backfill();
+    expect(store.watchStart("conv-1")).toBe(START);
+    store.recordProcessed({ messageId: "c1", conversationId: "conv-1", kind: "clip", timestamp: START + HOUR, result: "posted" });
+    // 12 時間止まってから起動し直す
+    const later = START + 12 * HOUR;
+    const second = setup({ store, startedAt: later, now: () => later });
+    second.rest.push(msg("while-down", { timestamp: START + 2 * HOUR, contentType: "video/mp4" }));
+    await second.ingest.backfill();
+    await second.ingest.idle();
+    expect(second.seen.map((m) => m.message.messageId)).toEqual(["while-down"]);
+    expect(store.watchStart("conv-1")).toBe(START);
   });
 
   it("自分の発言は捨てる", async () => {

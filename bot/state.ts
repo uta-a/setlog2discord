@@ -45,6 +45,10 @@ export type StateStore = {
   /** Discord から setlog に送った発言を記録する（同じ Discord の発言の 2 回目は無視）。 */
   recordSent(r: { discordMessageId: string; setlogMessageId: string; conversationId: string }): void;
   sentMessageIdOf(discordMessageId: string): string | undefined;
+  /** その会話を Bot が見始めた時刻（これより前のメッセージは補完で流さない）。未記録なら null。 */
+  watchStart(conversationId: string): number | null;
+  /** 見始めた時刻を記録する。記録済みなら変えない。 */
+  ensureWatchStart(conversationId: string, at: number): void;
   close(): void;
 };
 
@@ -64,6 +68,10 @@ CREATE TABLE IF NOT EXISTS sent_messages (
   setlog_message_id  TEXT NOT NULL,
   conversation_id    TEXT NOT NULL,
   sent_at            INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS watched_conversations (
+  conversation_id TEXT PRIMARY KEY,
+  since           INTEGER NOT NULL
 );
 CREATE TABLE IF NOT EXISTS cursors (
   conversation_id TEXT PRIMARY KEY,
@@ -93,6 +101,8 @@ export function openState(path: string): StateStore {
   const insertSent = db.prepare(
     `INSERT OR IGNORE INTO sent_messages (discord_message_id, setlog_message_id, conversation_id, sent_at) VALUES (?, ?, ?, ?)`,
   );
+  const selectWatch = db.prepare("SELECT since FROM watched_conversations WHERE conversation_id = ?");
+  const insertWatch = db.prepare("INSERT OR IGNORE INTO watched_conversations (conversation_id, since) VALUES (?, ?)");
   const selectSent = db.prepare("SELECT setlog_message_id FROM sent_messages WHERE discord_message_id = ?");
   const selectDiscordId = db.prepare(
     "SELECT discord_message_id FROM processed_messages WHERE message_id = ? AND result = 'posted'",
@@ -155,6 +165,13 @@ export function openState(path: string): StateStore {
     sentMessageIdOf(discordMessageId) {
       const row = selectSent.get(discordMessageId) as { setlog_message_id: string } | undefined;
       return row?.setlog_message_id;
+    },
+    watchStart(conversationId) {
+      const row = selectWatch.get(conversationId) as { since: number } | undefined;
+      return row ? Number(row.since) : null;
+    },
+    ensureWatchStart(conversationId, at) {
+      insertWatch.run(conversationId, at);
     },
     close: () => db.close(),
   };
