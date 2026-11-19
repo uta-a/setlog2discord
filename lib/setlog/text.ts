@@ -45,12 +45,12 @@ export class TextDecryptError extends ClipDecryptError {
 
 export function decryptTextMessage(msg: TextPayload, keyring: Keyring, selfUserId: string): string {
   const mine = msg.keys.filter((k) => k.uid === selfUserId);
-  if (mine.length === 0) throw new TextDecryptError("自分宛の鍵エントリが無い");
+  if (mine.length === 0) throw new TextDecryptError("no key entry for this account");
   const entry = mine.find((k) => keyring.has(k.kid));
-  if (!entry) throw new TextDecryptError(`手元に kid=${mine.map((k) => k.kid.slice(0, 8)).join("/")} の鍵が無い`);
+  if (!entry) throw new TextDecryptError(`no local key for kid=${mine.map((k) => k.kid.slice(0, 8)).join("/")}`);
   try {
     return decryptText({ ...msg, keys: [entry] }, keyring.get(entry.kid)!, selfUserId);
   } catch {
-    throw new TextDecryptError("テキストを復号できない");
+    throw new TextDecryptError("could not decrypt the text");
   }
 }

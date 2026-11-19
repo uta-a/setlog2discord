@@ -29,10 +29,10 @@ describe("channelProblems", () => {
       G,
     );
     expect(problems).toHaveLength(4);
-    expect(problems[0]).toMatch(/見つからない/);
+    expect(problems[0]).toMatch(/not found/);
     expect(problems[1]).toMatch(/guild/);
-    expect(problems[2]).toMatch(/テキスト/);
-    expect(problems[3]).toMatch(/送信/);
+    expect(problems[2]).toMatch(/not a text channel/);
+    expect(problems[3]).toMatch(/cannot send/);
   });
 });
 

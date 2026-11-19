@@ -58,6 +58,8 @@ describe("parseMessageHead", () => {
 describe("messageKind", () => {
   it("contentType で clip / text / other に分ける", () => {
     expect(messageKind({ contentType: "video/mp4" })).toBe("clip");
+    // iPhone から撮ったクリップは video/quicktime で届く（2026-11-19 実測）
+    expect(messageKind({ contentType: "video/quicktime" })).toBe("clip");
     expect(messageKind({ contentType: "text/plain" })).toBe("text");
     expect(messageKind({ contentType: "image/jpeg" })).toBe("photo");
     expect(messageKind({ contentType: "image/png" })).toBe("photo");

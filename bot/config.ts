@@ -95,10 +95,10 @@ export function configuredChannels(config: BotConfig): { id: string; purpose: st
     { id: config.statusChannelId, purpose: "bot-status" },
     ...config.groups.flatMap((g) =>
       g.clipsChannelId === g.chatChannelId
-        ? [{ id: g.clipsChannelId, purpose: `${g.name} のクリップとチャット` }]
+        ? [{ id: g.clipsChannelId, purpose: `${g.name} clips and chat` }]
         : [
-            { id: g.clipsChannelId, purpose: `${g.name} のクリップ` },
-            { id: g.chatChannelId, purpose: `${g.name} のチャット` },
+            { id: g.clipsChannelId, purpose: `${g.name} clips` },
+            { id: g.chatChannelId, purpose: `${g.name} chat` },
           ],
     ),
   ];

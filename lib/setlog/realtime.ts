@@ -49,22 +49,22 @@ export function parseFrame(text: string): Frame {
   try {
     json = JSON.parse(text);
   } catch {
-    return { kind: "invalid", detail: "JSON として読めない" };
+    return { kind: "invalid", detail: "not valid JSON" };
   }
   const frame = FrameSchema.safeParse(json);
-  if (!frame.success) return { kind: "invalid", detail: `フレームの形が違う: ${issueKeys(frame.error)}` };
+  if (!frame.success) return { kind: "invalid", detail: `unexpected frame shape: ${issueKeys(frame.error)}` };
 
   const { action, data } = frame.data;
   if (action !== "newMessage") return { kind: "other", action };
 
   const msg = parseMessageHead(data);
-  if (!msg.success) return { kind: "invalid", action, detail: `項目が合わない: ${issueKeys(msg.error)}` };
+  if (!msg.success) return { kind: "invalid", action, detail: `unexpected fields: ${issueKeys(msg.error)}` };
   return { kind: "message", message: msg.data };
 }
 
 /** clip：2 秒クリップ（video/mp4）、photo：写真（type=snap、image/jpeg など。復号の仕組みはクリップと同じ）。 */
 export function messageKind(m: { contentType: string }): "clip" | "photo" | "text" | "other" {
-  if (m.contentType === "video/mp4") return "clip";
+  if (m.contentType === "video/mp4" || m.contentType === "video/quicktime") return "clip";
   if (m.contentType.startsWith("image/")) return "photo";
   if (m.contentType === "text/plain") return "text";
   return "other";

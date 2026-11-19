@@ -102,6 +102,14 @@ function embedPoster(client: Client): PostEmbed {
       } else {
         card.addTextDisplayComponents((t) => t.setContent(`**${name}**`));
       }
+      if (post.caption) {
+        // 動画のタイトル（setlog のキャプション）は名前の下、動画の上に見出しで出す。友達が自由に書けるので書式として解釈させない
+        const title = post.caption
+          .split("\n")
+          .map((line) => `### ${escapeMarkdown(line, { heading: true, maskedLink: true, bulletedList: true, numberedList: true })}`)
+          .join("\n");
+        card.addTextDisplayComponents((t) => t.setContent(title));
+      }
       card.addMediaGalleryComponents((g) => g.addItems((i) => i.setURL(`attachment://${post.video.name}`)));
       const files = [post.video, post.avatar]
         .filter((f) => f !== undefined)
@@ -166,14 +174,14 @@ async function main(): Promise<void> {
     if (!group) return;
     const fail = (reason: string) =>
       msg
-        .reply({ content: `送れなかった：${reason}`, allowedMentions: { parse: [], repliedUser: false } })
+        .reply({ content: `Not sent: ${reason}`, allowedMentions: { parse: [], repliedUser: false } })
         .catch((e) => log.warn(`失敗の返信に失敗: ${e instanceof Error ? e.message : String(e)}`));
     if (msg.attachments.size > 0 || msg.stickers.size > 0) {
-      await fail("テキストだけ送れる（添付・スタンプは送らない）");
+      await fail("only text can be sent (attachments and stickers are not supported)");
       return;
     }
     if (!receiver) {
-      await fail("まだ起動の途中");
+      await fail("the bot is still starting up");
       return;
     }
     // Discord の返信は setlog の返信にする（転送は返信ではないので、参照を持っていても使わない）
@@ -186,7 +194,7 @@ async function main(): Promise<void> {
       if (e instanceof SendError) await fail(e.message);
       else {
         log.error(`送信で想定外のエラー: ${e instanceof Error ? e.message : String(e)}`);
-        await fail("想定外のエラー");
+        await fail("unexpected error");
       }
     }
   });
@@ -195,14 +203,14 @@ async function main(): Promise<void> {
     if (!interaction.isChatInputCommand() || interaction.commandName !== RECONNECT_COMMAND.name) return;
     try {
       if (!canUseCommand({ guildId: interaction.guildId, userId: interaction.user.id }, config)) {
-        await interaction.reply({ content: "このコマンドは使えない", flags: MessageFlags.Ephemeral });
+        await interaction.reply({ content: "You cannot use this command.", flags: MessageFlags.Ephemeral });
         return;
       }
       const r = receiver?.reconnect() ?? "not-connected";
       const text = {
-        reconnecting: "setlog につなぎ直した。取りこぼし分も補完する",
-        "not-connected": "setlog につながっていない（自動で再接続を続けている）",
-        halted: "受信は止まっている（#bot-status の通知を確認する）",
+        reconnecting: "Reconnected to setlog. Fetching any missed messages.",
+        "not-connected": "Not connected to setlog (retrying automatically).",
+        halted: "Receiving is stopped (see #bot-status).",
       }[r];
       log.info(`/reconnect: ${r}`);
       await interaction.reply({ content: text, flags: MessageFlags.Ephemeral });
@@ -236,13 +244,13 @@ async function main(): Promise<void> {
     const problems = channelProblems(channels, config.guildId);
     if (problems.length > 0) {
       for (const p of problems) log.error(p);
-      await notify(`設定の確認で問題が見つかった:\n${problems.map((p) => `- ${p}`).join("\n")}`);
+      await notify(`Configuration problems found:\n${problems.map((p) => `- ${p}`).join("\n")}`);
       await shutdown(1);
       return;
     }
 
     log.info(`準備完了（グループ ${config.groups.length} 件）`);
-    await notify(`起動しました（グループ ${config.groups.length} 件）`);
+    await notify(`Started (${config.groups.length} group(s))`);
     receiver = startReceiver(config, notify, {
       statePath: process.env.BOT_STATE ?? "data/state.sqlite",
       startedAt,
@@ -256,7 +264,7 @@ async function main(): Promise<void> {
     if (stopping) return;
     stopping = true;
     await receiver?.stop().catch((e) => log.error(`受信の停止に失敗: ${String(e)}`));
-    if (client.isReady() && code === 0) await notify("停止します");
+    if (client.isReady() && code === 0) await notify("Stopping");
     await client.destroy();
     process.exit(code);
   }

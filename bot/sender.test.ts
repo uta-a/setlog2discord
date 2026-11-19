@@ -71,8 +71,8 @@ describe("createSender", () => {
 
   it("空・長すぎる本文は送らない", async () => {
     const { sender, sent } = setup();
-    await expect(sender.send("c", "   ")).rejects.toThrow(/空/);
-    await expect(sender.send("c", "あ".repeat(2001))).rejects.toThrow(/長すぎる/);
+    await expect(sender.send("c", "   ")).rejects.toThrow(/empty/);
+    await expect(sender.send("c", "あ".repeat(2001))).rejects.toThrow(/too long/);
     expect(sent).toEqual([]);
   });
 
@@ -87,17 +87,17 @@ describe("createSender", () => {
   it("手元に今の kid の鍵が無い・公開鍵が合わない・自分の鍵が登録されていないときは送らない", async () => {
     const other = keypair();
     const b = setup({ keyring: new Map([["kid-old", other.priv]]) });
-    await expect(b.sender.send("c", "x")).rejects.toThrow(/今の鍵/);
+    await expect(b.sender.send("c", "x")).rejects.toThrow(/current key/);
     const c = setup({ keyring: new Map([["kid-me", other.priv]]) });
-    await expect(c.sender.send("c", "x")).rejects.toThrow(/合わない/);
+    await expect(c.sender.send("c", "x")).rejects.toThrow(/does not match/);
     const d = setup({ getMyKey: async () => ({ kid: null, publicKey: "" }) });
-    await expect(d.sender.send("c", "x")).rejects.toThrow(/登録されていない/);
+    await expect(d.sender.send("c", "x")).rejects.toThrow(/no key registered/);
     expect([...b.sent, ...c.sent, ...d.sent]).toEqual([]);
   });
 
   it("友達がいない（宛先が自分だけ）なら送らない", async () => {
     const s = setup({ getParticipantKeys: async () => [] });
-    await expect(s.sender.send("c", "x")).rejects.toThrow(/友達/);
+    await expect(s.sender.send("c", "x")).rejects.toThrow(/no other members/);
   });
 
   it("トークン失効は分かる理由にする。理由に本文を入れない", async () => {
@@ -108,7 +108,7 @@ describe("createSender", () => {
     });
     const e = await s.sender.send("c", "ひみつ").catch((x) => x);
     expect(e).toBeInstanceOf(SendError);
-    expect(String(e)).toMatch(/失効/);
+    expect(String(e)).toMatch(/expired/);
     expect(String(e)).not.toMatch(/ひみつ/);
   });
 });
@@ -130,6 +130,6 @@ describe("resolveParent", () => {
 
   it("返信先が setlog のメッセージでないか、別の会話のものなら送らない", () => {
     expect(() => resolveParent(lookup, "d-status", "conv-1")).toThrow(SendError);
-    expect(() => resolveParent(lookup, "d-other", "conv-1")).toThrow(/別の会話/);
+    expect(() => resolveParent(lookup, "d-other", "conv-1")).toThrow(/another conversation/);
   });
 });

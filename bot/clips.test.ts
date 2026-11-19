@@ -53,6 +53,19 @@ function setup(over: Partial<ClipDeps> = {}, clipOver = {}, fetchFailures = 0) {
 }
 
 describe("クリップのハンドラ", () => {
+  it("video/quicktime のクリップは .mov で投稿する", async () => {
+    const { run, posts, clip } = setup();
+    await run({ ...clip, contentType: "video/quicktime", media: { ...clip.media, mimeType: "video/quicktime" } });
+    expect(posts[0].video.name).toMatch(/\.mov$/);
+  });
+
+  it("タイトル（キャプション）があればカードに入れる", async () => {
+    const { run, posts, clip } = setup();
+    const withCaption = { ...clip, media: { ...clip.media, captions: [{ style: 0, text: "夕焼け", time: "", translation: "{0, 0}" }] } };
+    await run(withCaption);
+    expect(posts[0].caption).toBe("夕焼け");
+  });
+
   it("復号して clips チャンネルに、名前 1 行・アイコン・色・動画で投稿する（日付は出さない）", async () => {
     let avatarCalls = 0;
     const { run, posts } = setup({
@@ -125,7 +138,7 @@ describe("クリップのハンドラ", () => {
   it("kid の鍵が無ければ failed で記録して通知する", async () => {
     const { run, notes } = setup({ keyring: new Map() });
     expect(await run()).toEqual({ result: "failed" });
-    expect(notes[0]).toMatch(/開けない/);
+    expect(notes[0]).toMatch(/could not be decrypted/);
   });
 
   it("形が違えば failed で、キー名だけを通知する", async () => {
@@ -148,7 +161,7 @@ describe("クリップのハンドラ", () => {
     expect(fetches()).toBe(4);
     expect(await run()).toBeUndefined();
     expect(notes.length).toBe(1);
-    expect(notes[0]).toMatch(/5 分ごとに再試行/);
+    expect(notes[0]).toMatch(/Retrying every 5 minutes/);
   });
 
   it("Discord への投稿失敗は記録しない。添付の上限超えは failed", async () => {
