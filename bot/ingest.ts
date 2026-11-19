@@ -10,6 +10,8 @@
  * ハンドラの例外はここで捕まえる（記録しないので、次の補完でもう一度試す）。
  *
  * REST 補完の下限：cursor が無ければプロセス起動時刻、あれば cursor の 24 時間前。直近 40 件まで。
+ * ただし、その会話を Bot が見始めた時刻（watched_conversations）より前は流さない。cursor の 24 時間前だけだと、
+ * 会話を設定した直後に 1 件記録しただけで、見ていなかった前日の分まで流れた（2026-11-19）。
  * ただしテキストは、B3 を始める前の分を流さない。その会話で 1 件も記録していない間は起動時刻、記録してからは
  * 初めて記録したテキストの時刻より前を流さない。
  *
@@ -110,6 +112,19 @@ export function createIngest(opts: IngestOptions): Ingest {
     });
   }
 
+  /**
+   * 会話を見始めた時刻。未記録なら今回の起動時刻にする。この表を足す前から見ていた会話は、
+   * 記録済みのいちばん古いメッセージの時刻までさかのぼる（それより前は見ていた証拠が無い）。
+   */
+  function watchStartOf(conv: string): number {
+    const known = opts.store.watchStart(conv);
+    if (known !== null) return known;
+    const firsts = [opts.store.firstProcessedTimestamp(conv, "clip"), opts.store.firstProcessedTimestamp(conv, "text")];
+    const since = Math.min(opts.startedAt, ...firsts.filter((t): t is number => t !== null));
+    opts.store.ensureWatchStart(conv, since);
+    return since;
+  }
+
   return {
     onFrame(text) {
       const f = parseFrame(text);
@@ -129,7 +144,8 @@ export function createIngest(opts: IngestOptions): Ingest {
       for (const conv of conversations) {
         const raw = await opts.fetchMessages(conv, { limit: BACKFILL_LIMIT, beforeTimestamp: now() });
         const cursor = opts.store.getCursor(conv);
-        const lowerBound = cursor === null ? opts.startedAt : cursor - LOOKBACK_MS;
+        const watchStart = watchStartOf(conv);
+        const lowerBound = Math.max(cursor === null ? opts.startedAt : cursor - LOOKBACK_MS, watchStart);
         // テキストの転送（B3）を始める前の分は流さない。テキストを 1 件も記録していない間は起動時刻、
         // 記録してからは初めて記録したテキストの時刻を下限にする（cursor の 24 時間前まで広げても、B3 以前には戻らない）
         const firstText = opts.store.firstProcessedTimestamp(conv, "text");

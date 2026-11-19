@@ -18,7 +18,7 @@ sudo が要るのは Node.js の導入だけ。サービスはログインユー
 
 ## 大事な注意：Bot は 1 か所でしか動かさない
 
-setlog は同じアカウントの「最後に接続した 1 本」にしか新着を送らない（[api.md 4.9](api.md)）。Mac とサーバーで同時に動かすと、10 分ごとに配信先を奪い合う。**サーバーで動かしている間は、Mac で `pnpm start` しない。**
+setlog は同じアカウントの「最後に接続した 1 本」にしか新着を送らない（[api.md 4.9](api.md)）。Mac とサーバーで同時に動かすと、5 分ごとに配信先を奪い合う。**サーバーで動かしている間は、Mac で `pnpm start` しない。**
 
 ## 1. Node.js 26 と pnpm（sudo）
 
@@ -139,7 +139,7 @@ Mac で動いている Bot を止める（`pnpm start` のターミナルで Ctr
 | 「Used disallowed intents」で起動しない | Discord Developer Portal で Bot の MESSAGE CONTENT INTENT を有効にする |
 | `#bot-status` に「トークンが失効した」 | Mac で `tools/setlog-login.ts` の start・verify をやり直し、新しい `.env.local`（サーバーでは `.env`）と `.secrets.keybackup.json` を 3 の手順で置き直して `deploy/scripts/restart.sh` |
 | 環境変数が「Too small」で起動しない | サービスが読む `.env` に値が入っていない。サーバーに `.env` があり、4 つの値が入っているか確かめる（`.env.local` は読まない） |
-| 新着が届かない | スマホで setlog アプリを開いていると Bot に届かない。10 分以内に戻るのを待つか、Discord で `/reconnect` |
+| 新着が届かない | スマホで setlog アプリを開いていると Bot に届かない。5 分以内に戻るのを待つか、Discord で `/reconnect` |
 | Mac でも動かしてしまった | Mac の方を止める。Mac の状態ストアは使わない |
 | ログアウトすると止まる | `loginctl enable-linger`（sudo が要る場合あり） |
 
