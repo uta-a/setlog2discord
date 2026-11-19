@@ -25,6 +25,7 @@ import {
   MessageReferenceType,
   type MessageCreateOptions,
   PermissionFlagsBits,
+  type Webhook,
 } from "discord.js";
 import { RECONNECT_COMMAND } from "./commands";
 import { AttachmentTooLargeError, type PostEmbed } from "./posting";
@@ -35,7 +36,7 @@ import { loadKeyring } from "./keys";
 import { log } from "./log";
 import { startReceiver, type Receiver } from "./receiver";
 import { createNotifier } from "./status";
-import { createWebhookDirectory, replyLine, webhookUsername, type WebhookDirectory } from "./webhooks";
+import { createWebhookDirectory, discordChannelHooks, replyLine, webhookUsername, type WebhookDirectory } from "./webhooks";
 
 function readConfig(): BotConfig {
   const path = process.env.BOT_CONFIG ?? "bot.config.json";
@@ -90,7 +91,7 @@ function isUnknownWebhook(e: unknown): boolean {
  * 通知に友達の名前が出るよう、Webhook が使えれば username を友達の名前にして Webhook で投稿する（webhooks.ts）。
  * 使えなければ Bot として投稿する。
  */
-function embedPoster(client: Client, hooks: WebhookDirectory): PostEmbed {
+function embedPoster(client: Client, hooks: WebhookDirectory<Webhook>): PostEmbed {
   return async (channelId, post, nonce) => {
     const ch = await client.channels.fetch(channelId);
     if (!ch?.isSendable()) throw new Error("投稿先のチャンネルに送信できない");
@@ -149,7 +150,7 @@ function embedPoster(client: Client, hooks: WebhookDirectory): PostEmbed {
       replyTo = post.replyTo;
     }
     try {
-      const hook = await hooks.get(channelId);
+      const hook = await hooks.get(channelId, { userId: post.authorId, avatar: post.avatar?.data });
       if (hook) {
         let body = payload;
         if (replyTo && "guildId" in ch && ch.guildId) {
@@ -294,7 +295,7 @@ async function main(): Promise<void> {
       keyring,
       post: embedPoster(
         c,
-        createWebhookDirectory(c, (channelId) =>
+        createWebhookDirectory((channelId) => discordChannelHooks(c, channelId), (channelId) =>
           void notify(`Cannot use a webhook in <#${channelId}> (grant the bot Manage Webhooks). Posting as the bot, so notifications will not show the sender's name.`),
         ),
       ),

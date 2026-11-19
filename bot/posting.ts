@@ -28,6 +28,8 @@ export type FileData = { name: string; data: Buffer };
  */
 export type ClipCardPost = {
   layout: "clip";
+  /** setlog の送信者のユーザー ID（Webhook を人ごとに分けるのに使う）。 */
+  authorId: string;
   authorName: string;
   /** 動画のタイトル（setlog のキャプション）。名前と動画の間に出す。 */
   caption?: string;
@@ -42,6 +44,8 @@ export type ClipCardPost = {
 /** embed 1 つの投稿（テキスト用）。 */
 export type CardPost = {
   layout?: "card";
+  /** setlog の送信者のユーザー ID（Webhook を人ごとに分けるのに使う）。 */
+  authorId: string;
   authorName: string;
   /** embed の本文（Markdown として表示される。呼び出し側で必要ならエスケープする）。 */
   description: string;

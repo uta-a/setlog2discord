@@ -77,6 +77,7 @@ export function createTextHandler(deps: TextDeps): TextHandler {
       const discordMessageId = await deps.post(
         m.group.chatChannelId,
         {
+          authorId: msg.senderId,
           authorName: author.name,
           description: textBody(text),
           groupName: m.group.name,
