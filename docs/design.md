@@ -132,7 +132,7 @@ setlog の友達の新着（2秒クリップとグループのテキストチャ
 
 ### 7.1 クリップの投稿（setlog → Discord）
 
-1. `newMessage` で `contentType=video/mp4` を受ける。送信者が自分なら捨てる
+1. `newMessage` で `contentType=video/mp4` か `video/quicktime`（iPhone から撮ったもの。2026-11-19 に実物を確認して追加。`.mov` で投稿する）を受ける。送信者が自分なら捨てる
 2. `messageId` が投稿済みなら捨てる（状態ストアで確認）
 3. `keys[]` の自分宛エントリで content key をアンラップする（`unwrapContentKey`）
 4. `media.path` を `https://media.newchatapi.com/` から取得し、`decryptMedia` で mp4 に戻す

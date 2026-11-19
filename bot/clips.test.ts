@@ -53,6 +53,12 @@ function setup(over: Partial<ClipDeps> = {}, clipOver = {}, fetchFailures = 0) {
 }
 
 describe("クリップのハンドラ", () => {
+  it("video/quicktime のクリップは .mov で投稿する", async () => {
+    const { run, posts, clip } = setup();
+    await run({ ...clip, contentType: "video/quicktime", media: { ...clip.media, mimeType: "video/quicktime" } });
+    expect(posts[0].video.name).toMatch(/\.mov$/);
+  });
+
   it("タイトル（キャプション）があればカードに入れる", async () => {
     const { run, posts, clip } = setup();
     const withCaption = { ...clip, media: { ...clip.media, captions: [{ style: 0, text: "夕焼け", time: "", translation: "{0, 0}" }] } };

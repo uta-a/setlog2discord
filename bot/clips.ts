@@ -53,7 +53,7 @@ export type ClipHandler = ((m: IncomingMessage) => Promise<HandlerResult>) & {
 
 export const clipNonce = (messageId: string) => makeNonce("clip", messageId);
 
-const EXT: Record<string, string> = { "video/mp4": "mp4", "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "image/gif": "gif", "image/heic": "heic" };
+const EXT: Record<string, string> = { "video/mp4": "mp4", "video/quicktime": "mov", "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "image/gif": "gif", "image/heic": "heic" };
 
 function fileName(ts: number, messageId: string, mime: string): string {
   const w = new Date(ts + 9 * 60 * 60 * 1000);
