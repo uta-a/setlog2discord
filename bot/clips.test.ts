@@ -53,6 +53,13 @@ function setup(over: Partial<ClipDeps> = {}, clipOver = {}, fetchFailures = 0) {
 }
 
 describe("クリップのハンドラ", () => {
+  it("タイトル（キャプション）があればカードに入れる", async () => {
+    const { run, posts, clip } = setup();
+    const withCaption = { ...clip, media: { ...clip.media, captions: [{ style: 0, text: "夕焼け", time: "", translation: "{0, 0}" }] } };
+    await run(withCaption);
+    expect(posts[0].caption).toBe("夕焼け");
+  });
+
   it("復号して clips チャンネルに、名前 1 行・アイコン・色・動画で投稿する（日付は出さない）", async () => {
     let avatarCalls = 0;
     const { run, posts } = setup({

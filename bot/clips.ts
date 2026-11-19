@@ -25,6 +25,7 @@ import { short, type HandlerResult, type IncomingMessage } from "./ingest";
 import { log } from "./log";
 import {
   AttachmentTooLargeError,
+  captionText,
   createOutcomes,
   makeNonce,
   resolveAuthor,
@@ -106,12 +107,14 @@ export function createClipHandler(deps: ClipDeps): ClipHandler {
 
     // 名前とアイコンを動画の上に出す（時刻・グループ名は出さない。色はカードの帯に使う）
     const author = await resolveAuthor(deps, clip.senderId, clip.senderName, nameTimeoutMs);
+    const caption = captionText(clip.media);
     try {
       const discordMessageId = await deps.post(
         m.group.clipsChannelId,
         {
           layout: "clip",
           authorName: author.name,
+          ...(caption ? { caption } : {}),
           color: author.color,
           avatar: author.avatar,
           video: { name: fileName(clip.timestamp, id, clip.media.mimeType), data: mp4 },

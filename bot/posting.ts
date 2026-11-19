@@ -26,7 +26,15 @@ export type FileData = { name: string; data: Buffer };
  * クリップの投稿：カード（Components V2 のコンテナ）の中に、送信者の名前 1 行とその下に動画を並べる。
  * 従来の embed には Bot から動画を入れられず、添付は embed の上に出てしまうため。
  */
-export type ClipCardPost = { layout: "clip"; authorName: string; color?: number; avatar?: FileData; video: FileData };
+export type ClipCardPost = {
+  layout: "clip";
+  authorName: string;
+  /** 動画のタイトル（setlog のキャプション）。名前と動画の間に出す。 */
+  caption?: string;
+  color?: number;
+  avatar?: FileData;
+  video: FileData;
+};
 
 /** embed 1 つの投稿（テキスト用）。 */
 export type CardPost = {
@@ -69,6 +77,23 @@ const NAME_MAX = 64;
 export function displayName(raw: string): string {
   const oneLine = raw.replace(/[\p{Cc}\u2028\u2029\u202a-\u202e\u2066-\u2069]+/gu, " ").replace(/\s+/g, " ").trim();
   return [...oneLine].slice(0, NAME_MAX).join("");
+}
+
+const CAPTION_MAX = 200;
+
+/**
+ * setlog のキャプション（media.captions[].text。平文）を 1 つの文字列にする。キャプションごとに 1 行。
+ * 形が違っても投稿は止めないよう、ここでは検証で落とさず読めるものだけ拾う。制御文字は除き、長すぎれば切る。
+ */
+export function captionText(media: unknown): string | undefined {
+  const caps = (media as { captions?: unknown } | null | undefined)?.captions;
+  if (!Array.isArray(caps)) return undefined;
+  const lines = caps
+    .map((c) => (c && typeof (c as { text?: unknown }).text === "string" ? (c as { text: string }).text : ""))
+    .map((t) => t.replace(/[\p{Cc}\u2028\u2029\u202a-\u202e\u2066-\u2069]+/gu, " ").replace(/\s+/g, " ").trim())
+    .filter((t) => t.length > 0);
+  if (lines.length === 0) return undefined;
+  return [...lines.join("\n")].slice(0, CAPTION_MAX).join("");
 }
 
 /** 種類と messageId から nonce（Discord の上限 25 文字）を作る。 */

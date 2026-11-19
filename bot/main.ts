@@ -102,6 +102,14 @@ function embedPoster(client: Client): PostEmbed {
       } else {
         card.addTextDisplayComponents((t) => t.setContent(`**${name}**`));
       }
+      if (post.caption) {
+        // 動画のタイトル（setlog のキャプション）は名前の下、動画の上に見出しで出す。友達が自由に書けるので書式として解釈させない
+        const title = post.caption
+          .split("\n")
+          .map((line) => `### ${escapeMarkdown(line, { heading: true, maskedLink: true, bulletedList: true, numberedList: true })}`)
+          .join("\n");
+        card.addTextDisplayComponents((t) => t.setContent(title));
+      }
       card.addMediaGalleryComponents((g) => g.addItems((i) => i.setURL(`attachment://${post.video.name}`)));
       const files = [post.video, post.avatar]
         .filter((f) => f !== undefined)
