@@ -4,7 +4,7 @@
  * 失敗の扱い（設計書7.1・7.2）：
  * - 記録する失敗（failed）：再試行しても変わらないもの。通知する（形の違いは理由ごとに 1 回）
  * - 記録しない失敗（transient）：CDN・Discord の一時的な失敗。通知は 1 件につき 1 回。
- *   残っている間は hasPending() が真になり、receiver が 10 分ごとに補完して拾い直す
+ *   残っている間は hasPending() が真になり、receiver が 5 分ごとに補完して拾い直す
  */
 import { createHash } from "node:crypto";
 import type { HandlerResult } from "./ingest";
@@ -123,7 +123,7 @@ export function createOutcomes(notify: Notifier): Outcomes {
       log.warn(text);
       if (!pending.has(id)) {
         pending.add(id);
-        void notify(`${text}。10 分ごとに再試行する`);
+        void notify(`${text}。5 分ごとに再試行する`);
       }
       return undefined;
     },
