@@ -118,8 +118,8 @@ setlog の友達の新着（2秒クリップとグループのテキストチャ
 
 **投稿の形**
 
-- クリップ：カード（Components V2 のコンテナ）の中に、送信者の名前 1 行（太字。右にアイコンのサムネイル）と、その下に mp4。左の帯はその人の `tintColor`。日付・グループ名は出さない（2026-11-19 に決めた）。従来の embed には Bot から動画を入れられず、添付は embed の上に出てしまうため、この形にした
-- アイコン：メディア CDN の `avatarUrl`（暗号化されていない。拡張子は `.heic` でも中身は JPEG）を Bot が取得し、添付して embed から `attachment://` で参照する（Discord に setlog の URL を渡さない。中身が JPEG・PNG・WebP・GIF でなければ使わない）
+- クリップ：カード（Components V2 のコンテナ）の中に、送信者の名前 1 行（太字）と、その下に mp4。左の帯はその人の `tintColor`。日付・グループ名は出さない（2026-11-19 に決めた）。従来の embed には Bot から動画を入れられず、添付は embed の上に出てしまうため、この形にした
+- アイコン：メディア CDN の `avatarUrl`（暗号化されていない。拡張子は `.heic` でも中身は JPEG）を Bot が取得し、友達の Webhook のアイコンに設定する（Discord に setlog の URL を渡さない。中身が JPEG・PNG・WebP・GIF でなければ使わない）。カードと embed の中にはアイコンを出さない（2026-11-19 に Webhook の投稿者のアイコンにしたので外した）
 - `tintColor` は `#RRRRGGGGBBBBAAAA`（各成分 16 ビット）の形で返るので、上位 8 ビットを使う
 - 友達のテキスト：クリップと同じ形の embed。本文にテキスト（Markdown はエスケープして書いたとおりに見せる。URL は自動でリンクになる）、タイムスタンプに送信時刻。Webhook は使わない（2026-11-19 に embed に変えた）
 - メンバー名とアバターは `GET chat/message/participantKeys` と `collections` の参加者情報から取り、起動時と `collectionJoined` などのイベントで更新する
