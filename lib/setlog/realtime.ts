@@ -63,9 +63,11 @@ export function parseFrame(text: string): Frame {
 }
 
 /** clip：2 秒クリップ（video/mp4）、photo：写真（type=snap、image/jpeg など。復号の仕組みはクリップと同じ）。 */
-export function messageKind(m: { contentType: string }): "clip" | "photo" | "text" | "other" {
+export function messageKind(m: { contentType: string }): "clip" | "photo" | "audio" | "text" | "other" {
   if (m.contentType === "video/mp4" || m.contentType === "video/quicktime") return "clip";
   if (m.contentType.startsWith("image/")) return "photo";
+  // 音声メッセージ（type=snap・audio/mp4。暗号と CDN の仕組みはクリップと同じ）
+  if (m.contentType.startsWith("audio/")) return "audio";
   if (m.contentType === "text/plain") return "text";
   return "other";
 }

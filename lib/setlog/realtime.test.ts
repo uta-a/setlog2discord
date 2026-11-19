@@ -63,6 +63,9 @@ describe("messageKind", () => {
     expect(messageKind({ contentType: "text/plain" })).toBe("text");
     expect(messageKind({ contentType: "image/jpeg" })).toBe("photo");
     expect(messageKind({ contentType: "image/png" })).toBe("photo");
-    expect(messageKind({ contentType: "audio/aac" })).toBe("other");
+    // 音声メッセージは type=snap・audio/mp4 で届く（2026-11-19 実測）
+    expect(messageKind({ contentType: "audio/mp4" })).toBe("audio");
+    expect(messageKind({ contentType: "audio/aac" })).toBe("audio");
+    expect(messageKind({ contentType: "application/pdf" })).toBe("other");
   });
 });

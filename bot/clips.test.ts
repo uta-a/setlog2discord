@@ -53,6 +53,14 @@ function setup(over: Partial<ClipDeps> = {}, clipOver = {}, fetchFailures = 0) {
 }
 
 describe("クリップのハンドラ", () => {
+  it("音声は .m4a のファイルとして投稿する（動画の枠ではなくファイルの部品）", async () => {
+    const { handler, posts, clip } = setup();
+    const audio = { ...clip, type: "snap", contentType: "audio/mp4", media: { ...clip.media, mimeType: "audio/mp4" } };
+    await handler({ kind: "audio", group, message: audio as unknown as MessageHead });
+    expect(posts[0].video.name).toMatch(/\.m4a$/);
+    expect(posts[0].asFile).toBe(true);
+  });
+
   it("video/quicktime のクリップは .mov で投稿する", async () => {
     const { run, posts, clip } = setup();
     await run({ ...clip, contentType: "video/quicktime", media: { ...clip.media, mimeType: "video/quicktime" } });

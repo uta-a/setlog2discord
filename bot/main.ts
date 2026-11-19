@@ -110,7 +110,12 @@ function embedPoster(client: Client): PostEmbed {
           .join("\n");
         card.addTextDisplayComponents((t) => t.setContent(title));
       }
-      card.addMediaGalleryComponents((g) => g.addItems((i) => i.setURL(`attachment://${post.video.name}`)));
+      if (post.asFile) {
+        // 音声は動画・画像の枠（MediaGallery）に入らないので、ファイルの部品で出す（Discord がその場で再生できる）
+        card.addFileComponents((f) => f.setURL(`attachment://${post.video.name}`));
+      } else {
+        card.addMediaGalleryComponents((g) => g.addItems((i) => i.setURL(`attachment://${post.video.name}`)));
+      }
       const files = [post.video, post.avatar]
         .filter((f) => f !== undefined)
         .map((f) => ({ attachment: f.data, name: f.name }));

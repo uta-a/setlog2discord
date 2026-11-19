@@ -68,7 +68,7 @@ describe("取り込み（WebSocket）", () => {
     const { ingest, seen } = setup();
     ingest.onFrame(frame(msg("m1", { conversationId: "solo" })));
     ingest.onFrame(frame(msg("m2", { senderId: "u-me" })));
-    ingest.onFrame(frame(msg("m3", { contentType: "audio/aac" })));
+    ingest.onFrame(frame(msg("m3", { contentType: "application/pdf" })));
     await ingest.idle();
     expect(seen).toEqual([]);
   });
