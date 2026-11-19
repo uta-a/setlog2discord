@@ -53,7 +53,7 @@ export type ClipHandler = ((m: IncomingMessage) => Promise<HandlerResult>) & {
 
 export const clipNonce = (messageId: string) => makeNonce("clip", messageId);
 
-const EXT: Record<string, string> = { "video/mp4": "mp4", "video/quicktime": "mov", "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "image/gif": "gif", "image/heic": "heic" };
+const EXT: Record<string, string> = { "video/mp4": "mp4", "video/quicktime": "mov", "audio/mp4": "m4a", "audio/aac": "aac", "audio/mpeg": "mp3", "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "image/gif": "gif", "image/heic": "heic" };
 
 function fileName(ts: number, messageId: string, mime: string): string {
   const w = new Date(ts + 9 * 60 * 60 * 1000);
@@ -81,7 +81,7 @@ export function createClipHandler(deps: ClipDeps): ClipHandler {
 
   const handler = async (m: IncomingMessage): Promise<HandlerResult> => {
     const id = m.message.messageId;
-    const what = m.kind === "photo" ? "Photo" : "Clip";
+    const what = m.kind === "photo" ? "Photo" : m.kind === "audio" ? "Audio" : "Clip";
     const where = `${m.group.name} msg=${short(id)}`;
     // 削除済みは本体の形が崩れていることがあるので、厳密な検証より先に見る
     if ((m.message as { isDeleted?: unknown }).isDeleted === true) {
@@ -115,6 +115,7 @@ export function createClipHandler(deps: ClipDeps): ClipHandler {
           layout: "clip",
           authorName: author.name,
           ...(caption ? { caption } : {}),
+          ...(m.kind === "audio" ? { asFile: true } : {}),
           color: author.color,
           avatar: author.avatar,
           video: { name: fileName(clip.timestamp, id, clip.media.mimeType), data: mp4 },

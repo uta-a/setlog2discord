@@ -23,8 +23,8 @@ import { log } from "./log";
 import type { Notifier } from "./status";
 import type { MessageKind, ProcessResult, StateStore } from "./state";
 
-/** photo は状態ストアには clip として記録する（表の種類の列は clip・text だけ）。 */
-export type IncomingKind = MessageKind | "photo";
+/** photo・audio は状態ストアには clip として記録する（表の種類の列は clip・text だけ）。 */
+export type IncomingKind = MessageKind | "photo" | "audio";
 export type IncomingMessage = { kind: IncomingKind; group: GroupConfig; message: MessageHead };
 
 export type HandlerResult = { result: ProcessResult; discordMessageId?: string } | undefined;
