@@ -35,6 +35,7 @@ import { loadKeyring } from "./keys";
 import { log } from "./log";
 import { startReceiver, type Receiver } from "./receiver";
 import { createNotifier } from "./status";
+import { createWebhookDirectory, replyLine, webhookUsername, type WebhookDirectory } from "./webhooks";
 
 function readConfig(): BotConfig {
   const path = process.env.BOT_CONFIG ?? "bot.config.json";
@@ -79,14 +80,23 @@ function isTooLarge(e: unknown): boolean {
 /** 投稿の左の色。tintColor が無い人の既定色。 */
 const DEFAULT_COLOR = 0x8a8f98;
 
-/** クリップ（カードの中に名前と動画）とテキスト（embed）を投稿する。 */
-function embedPoster(client: Client): PostEmbed {
+/** Discord の「Webhook が無い」（JSON コード 10015）。 */
+function isUnknownWebhook(e: unknown): boolean {
+  return e instanceof DiscordAPIError && e.code === 10015;
+}
+
+/**
+ * クリップ（カードの中に名前と動画）とテキスト（embed）を投稿する。
+ * 通知に友達の名前が出るよう、Webhook が使えれば username を友達の名前にして Webhook で投稿する（webhooks.ts）。
+ * 使えなければ Bot として投稿する。
+ */
+function embedPoster(client: Client, hooks: WebhookDirectory): PostEmbed {
   return async (channelId, post, nonce) => {
     const ch = await client.channels.fetch(channelId);
     if (!ch?.isSendable()) throw new Error("投稿先のチャンネルに送信できない");
-    // 応答が失われて送り直したときに、Discord 側で同じメッセージの二重投稿を弾く
-    const common = { allowedMentions: { parse: [], repliedUser: false }, nonce, enforceNonce: true } as const;
-    let payload: MessageCreateOptions;
+    const common = { allowedMentions: { parse: [], repliedUser: false } } as const;
+    let payload: Omit<MessageCreateOptions, "nonce" | "reply" | "stickers" | "forward" | "sharedClientTheme">;
+    let replyTo: string | undefined;
     if (post.layout === "clip") {
       // 名前は友達が自由に付けられるので、書式・リンクとして解釈させない
       const name = escapeMarkdown(post.authorName, { heading: true, maskedLink: true, bulletedList: true, numberedList: true });
@@ -135,15 +145,37 @@ function embedPoster(client: Client): PostEmbed {
       const files = [post.video, post.avatar]
         .filter((f) => f !== undefined)
         .map((f) => ({ attachment: f.data, name: f.name }));
-      payload = {
-        ...common,
-        embeds: [embed],
-        files,
-        reply: post.replyTo ? { messageReference: post.replyTo, failIfNotExists: false } : undefined,
-      };
+      payload = { ...common, embeds: [embed], files };
+      replyTo = post.replyTo;
     }
     try {
-      return (await ch.send(payload)).id;
+      const hook = await hooks.get(channelId);
+      if (hook) {
+        let body = payload;
+        if (replyTo && "guildId" in ch && ch.guildId) {
+          // Webhook は Discord の返信を作れないので、返信先へのリンクを本文の上に足す
+          const [embed] = payload.embeds as EmbedBuilder[];
+          const line = replyLine(ch.guildId, channelId, replyTo);
+          body = { ...payload, embeds: [EmbedBuilder.from(embed).setDescription(`${line}\n${embed.data.description ?? ""}`)] };
+        }
+        try {
+          // Webhook には nonce が無いので、応答が失われて送り直すと二重に投稿されうる（頻度は低いので許容する）
+          return (await hook.send({ ...body, username: webhookUsername(post.authorName), withComponents: post.layout === "clip" })).id;
+        } catch (e) {
+          if (!isUnknownWebhook(e)) throw e;
+          // Webhook が消されていた。次は探し直し、今回は Bot として投稿する
+          hooks.forget(channelId);
+        }
+      }
+      // 応答が失われて送り直したときに、Discord 側で同じメッセージの二重投稿を弾く
+      return (
+        await ch.send({
+          ...payload,
+          nonce,
+          enforceNonce: true,
+          reply: replyTo ? { messageReference: replyTo, failIfNotExists: false } : undefined,
+        })
+      ).id;
     } catch (e) {
       if (isTooLarge(e)) throw new AttachmentTooLargeError();
       throw e;
@@ -260,7 +292,12 @@ async function main(): Promise<void> {
       statePath: process.env.BOT_STATE ?? "data/state.sqlite",
       startedAt,
       keyring,
-      post: embedPoster(c),
+      post: embedPoster(
+        c,
+        createWebhookDirectory(c, (channelId) =>
+          void notify(`Cannot use a webhook in <#${channelId}> (grant the bot Manage Webhooks). Posting as the bot, so notifications will not show the sender's name.`),
+        ),
+      ),
     });
   });
 
