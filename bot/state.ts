@@ -32,8 +32,16 @@ export type StateStore = {
   hasProcessedKind(conversationId: string, kind: MessageKind): boolean;
   /** その会話でその種類を記録したメッセージのうち、いちばん古い timestamp（B3 を始めた時点の目安）。 */
   firstProcessedTimestamp(conversationId: string, kind: MessageKind): number | null;
-  /** 投稿済みの setlog のメッセージに対応する Discord のメッセージ ID（返信の組み立てに使う）。 */
+  /**
+   * setlog のメッセージに対応する Discord のメッセージ ID（返信の組み立てに使う）。
+   * Bot が投稿したもの（posted）と、Discord から送った自分の発言の両方から引く。
+   */
   discordMessageIdOf(messageId: string): string | undefined;
+  /**
+   * Discord のメッセージに対応する setlog のメッセージ（Discord の返信を setlog の返信にするのに使う）。
+   * Bot が投稿したもの（posted）と、Discord から送った自分の発言の両方から引く。
+   */
+  setlogMessageOf(discordMessageId: string): { messageId: string; conversationId: string } | undefined;
   /** Discord から setlog に送った発言を記録する（同じ Discord の発言の 2 回目は無視）。 */
   recordSent(r: { discordMessageId: string; setlogMessageId: string; conversationId: string }): void;
   sentMessageIdOf(discordMessageId: string): string | undefined;
@@ -50,6 +58,7 @@ CREATE TABLE IF NOT EXISTS processed_messages (
   result             TEXT NOT NULL CHECK (result IN ('posted', 'skipped', 'failed')),
   processed_at       INTEGER NOT NULL
 );
+CREATE INDEX IF NOT EXISTS processed_messages_discord ON processed_messages (discord_message_id);
 CREATE TABLE IF NOT EXISTS sent_messages (
   discord_message_id TEXT PRIMARY KEY,
   setlog_message_id  TEXT NOT NULL,
@@ -88,6 +97,13 @@ export function openState(path: string): StateStore {
   const selectDiscordId = db.prepare(
     "SELECT discord_message_id FROM processed_messages WHERE message_id = ? AND result = 'posted'",
   );
+  const selectSentDiscordId = db.prepare("SELECT discord_message_id FROM sent_messages WHERE setlog_message_id = ?");
+  const selectByDiscordId = db.prepare(
+    "SELECT message_id, conversation_id FROM processed_messages WHERE discord_message_id = ? AND result = 'posted'",
+  );
+  const selectSentByDiscordId = db.prepare(
+    "SELECT setlog_message_id, conversation_id FROM sent_messages WHERE discord_message_id = ?",
+  );
 
   return {
     isProcessed: (messageId) => selectProcessed.get(messageId) !== undefined,
@@ -121,7 +137,17 @@ export function openState(path: string): StateStore {
     },
     discordMessageIdOf(messageId) {
       const row = selectDiscordId.get(messageId) as { discord_message_id: string | null } | undefined;
-      return row?.discord_message_id ?? undefined;
+      if (row?.discord_message_id) return row.discord_message_id;
+      const sent = selectSentDiscordId.get(messageId) as { discord_message_id: string } | undefined;
+      return sent?.discord_message_id;
+    },
+    setlogMessageOf(discordMessageId) {
+      const row = selectByDiscordId.get(discordMessageId) as { message_id: string; conversation_id: string } | undefined;
+      if (row) return { messageId: row.message_id, conversationId: row.conversation_id };
+      const sent = selectSentByDiscordId.get(discordMessageId) as
+        | { setlog_message_id: string; conversation_id: string }
+        | undefined;
+      return sent ? { messageId: sent.setlog_message_id, conversationId: sent.conversation_id } : undefined;
     },
     recordSent(r) {
       insertSent.run(r.discordMessageId, r.setlogMessageId, r.conversationId, Date.now());

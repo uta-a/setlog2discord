@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { SetlogAuthError } from "../lib/setlog/client";
 import { decryptText } from "../lib/setlog/crypto";
 import { keypair } from "../lib/setlog/test-helpers";
-import { SendError, createSender, type SenderDeps } from "./sender";
+import { SendError, createSender, resolveParent, type SenderDeps } from "./sender";
 
 function setup(over: Partial<SenderDeps> = {}) {
   const me = keypair();
@@ -41,6 +41,14 @@ describe("createSender", () => {
     const msg = { conversationId: "conv-1", messageId, senderId: "u-me", keys: p.keys, envelope: p.envelope };
     expect(decryptText(msg, friend.priv, "u-friend")).toBe("今どこ？");
     expect(decryptText(msg, me.priv, "u-me")).toBe("今どこ？");
+  });
+
+  it("返信先を渡すと parentId を付けて送る。渡さなければ付けない", async () => {
+    const { sender, sent } = setup();
+    await sender.send("conv-1", "それな", { parentId: "m-parent" });
+    await sender.send("conv-1", "ふつう");
+    expect(sent[0].parentId).toBe("m-parent");
+    expect(sent[1].parentId).toBeUndefined();
   });
 
   it("参加者の鍵は短時間キャッシュし、送信に失敗したら取り直す", async () => {
@@ -102,5 +110,26 @@ describe("createSender", () => {
     expect(e).toBeInstanceOf(SendError);
     expect(String(e)).toMatch(/失効/);
     expect(String(e)).not.toMatch(/ひみつ/);
+  });
+});
+
+describe("resolveParent", () => {
+  const table: Record<string, { messageId: string; conversationId: string }> = {
+    "d-clip": { messageId: "m-clip", conversationId: "conv-1" },
+    "d-other": { messageId: "m-other", conversationId: "conv-2" },
+  };
+  const lookup = (id: string) => table[id];
+
+  it("返信でなければ返信先なし", () => {
+    expect(resolveParent(lookup, undefined, "conv-1")).toBeUndefined();
+  });
+
+  it("Discord の返信先に対応する setlog のメッセージを返信先にする", () => {
+    expect(resolveParent(lookup, "d-clip", "conv-1")).toBe("m-clip");
+  });
+
+  it("返信先が setlog のメッセージでないか、別の会話のものなら送らない", () => {
+    expect(() => resolveParent(lookup, "d-status", "conv-1")).toThrow(SendError);
+    expect(() => resolveParent(lookup, "d-other", "conv-1")).toThrow(/別の会話/);
   });
 });
