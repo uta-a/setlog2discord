@@ -1,7 +1,8 @@
 /**
  * setlog からの受信（B1）を組み立てる：状態ストア＋ WebSocket ＋ REST 補完＋取り込み。
  *
- * - WebSocket がつながるたび（起動時・再接続時）に REST で補完する。記録しない失敗が残っている間は 10 分ごとにも補完する
+ * - WebSocket がつながるたび（起動時・再接続時・/reconnect）に REST で補完する。ただし 5 分ごとの定期のつなぎ直しでは、
+ *   前の補完から 10 分たったときだけ補完する（backfill-gate.ts）。記録しない失敗が残っている間は 5 分ごとにも補完する
  * - トークン失効（接続時の 401・補完中の 401）と close 4403 では受信を止めて通知する。
  *   プロセスは止めない（systemd に再起動されて setlog に接続を繰り返さないため）
  *
@@ -9,6 +10,7 @@
  */
 import { SetlogAuthError, SetlogClient, SetlogSchemaError } from "../lib/setlog/client";
 import { fetchMedia, type Keyring } from "../lib/setlog/media";
+import { createBackfillGate } from "./backfill-gate";
 import { createClipHandler } from "./clips";
 import type { BotConfig } from "./config";
 import { createIngest } from "./ingest";
@@ -40,7 +42,7 @@ const FATAL_TEXT: Record<FatalReason, string> = {
 export function startReceiver(
   config: BotConfig,
   notify: Notifier,
-  opts: { statePath: string; startedAt: number; keyring: Keyring; post: PostEmbed; retryIntervalMs?: number },
+  opts: { statePath: string; startedAt: number; keyring: Keyring; post: PostEmbed; retryIntervalMs?: number; backfillIntervalMs?: number },
 ): Receiver {
   const store = openState(opts.statePath);
   const setlog = new SetlogClient({ apiKey: config.setlog.apiKey, token: config.setlog.token });
@@ -97,7 +99,10 @@ export function startReceiver(
     void notify(FATAL_TEXT[reason]);
   }
 
+  const gate = createBackfillGate({ intervalMs: opts.backfillIntervalMs ?? 10 * 60_000 });
+
   async function backfill(): Promise<void> {
+    gate.markBackfilled();
     try {
       await ingest.backfill();
     } catch (e) {
@@ -119,12 +124,14 @@ export function startReceiver(
       log.info("取りこぼしたメッセージを拾い直すため補完する");
       void backfill();
     }
-  }, opts.retryIntervalMs ?? 10 * 60_000);
+  }, opts.retryIntervalMs ?? 5 * 60_000);
 
   socket = startSetlogSocket(
     { token: config.setlog.token },
     {
-      onOpen: () => void backfill(),
+      onOpen: (info) => {
+        if (gate.shouldBackfill(info)) void backfill();
+      },
       onFrame: (text) => ingest.onFrame(text),
       onFatal: halt,
       onDownTooLong: () => void notify("setlog の WebSocket に 5 分以上つながっていない。再接続を続けている"),

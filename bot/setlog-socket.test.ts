@@ -4,13 +4,17 @@ import { afterEach, describe, expect, it } from "vitest";
 import { WebSocketServer, type WebSocket as ServerSocket } from "ws";
 import { appBackoffMs, startSetlogSocket, type SetlogSocket, type SocketHandlers } from "./setlog-socket";
 
-type Recorder = SocketHandlers & { events: string[]; frames: string[] };
+type Recorder = SocketHandlers & { events: string[]; frames: string[]; opens: boolean[] };
 
 function recorder(): Recorder {
   const r: Recorder = {
     events: [],
     frames: [],
-    onOpen: () => r.events.push("open"),
+    opens: [],
+    onOpen: (info) => {
+      r.events.push("open");
+      r.opens.push(info.scheduled);
+    },
     onFrame: (t) => r.frames.push(t),
     onFatal: (why) => r.events.push(`fatal:${why}`),
     onDownTooLong: () => r.events.push("down"),
@@ -220,6 +224,8 @@ describe("startSetlogSocket", () => {
     expect(backoffCalls).toBe(0);
     expect(r.events.filter((e) => e !== "open")).toEqual([]);
     expect(conns).toBeGreaterThanOrEqual(3);
+    // 最初の接続は定期のつなぎ直しではない。それ以降は定期のつなぎ直し
+    expect(r.opens.slice(0, 3)).toEqual([false, true, true]);
   });
 
   it("reconnectNow ですぐつなぎ直し、onOpen を呼ぶ（バックオフしない）", async () => {
@@ -231,6 +237,7 @@ describe("startSetlogSocket", () => {
     expect(s.reconnectNow()).toBe(true);
     await until(() => r.events.filter((e) => e === "open").length === 2);
     expect(conns).toBe(2);
+    expect(r.opens).toEqual([false, false]);
   });
 
   it("つながっていないときの reconnectNow は何もしない（false）", async () => {

@@ -19,8 +19,8 @@ import { log } from "./log";
 export type FatalReason = "auth" | "locked";
 
 export type SocketHandlers = {
-  /** 接続できるたびに呼ぶ（REST 補完の合図）。 */
-  onOpen(): void;
+  /** 接続できるたびに呼ぶ（REST 補完の合図）。scheduled は定期のつなぎ直しでつながったとき真。 */
+  onOpen(info: { scheduled: boolean }): void;
   onFrame(text: string): void;
   onFatal(reason: FatalReason): void;
   onDownTooLong(): void;
@@ -74,6 +74,8 @@ export function startSetlogSocket(opts: SocketOptions, h: SocketHandlers): Setlo
   /** 今つながっている接続を閉じてつなぎ直す関数（つながっていなければ null）。 */
   let recycleCurrent: (() => boolean) | null = null;
   const recycleMs = opts.recycleMs ?? 5 * 60_000;
+  /** 次につながる接続が定期のつなぎ直しによるものか。 */
+  let nextScheduled = false;
 
   const watchdog = setInterval(() => {
     const now = Date.now();
@@ -119,6 +121,7 @@ export function startSetlogSocket(opts: SocketOptions, h: SocketHandlers): Setlo
         connect();
         return;
       }
+      nextScheduled = false;
       const stable = openedAt !== null && Date.now() - openedAt >= minStableMs;
       openedAt = null;
       if (stopped) return;
@@ -158,7 +161,8 @@ export function startSetlogSocket(opts: SocketOptions, h: SocketHandlers): Setlo
         recycleTimer = setTimeout(() => {
           recycleTimer = null;
           log.info("setlog WebSocket：定期のつなぎ直し");
-          recycleCurrent?.();
+          nextScheduled = true;
+          if (!recycleCurrent?.()) nextScheduled = false;
         }, recycleMs);
       }
       lastAlive = openedAt;
@@ -166,7 +170,9 @@ export function startSetlogSocket(opts: SocketOptions, h: SocketHandlers): Setlo
       if (notifiedDown) h.onRecovered();
       downSince = null;
       notifiedDown = false;
-      h.onOpen();
+      const scheduled = nextScheduled;
+      nextScheduled = false;
+      h.onOpen({ scheduled });
     });
 
     socket.on("ping", () => {
@@ -218,6 +224,7 @@ export function startSetlogSocket(opts: SocketOptions, h: SocketHandlers): Setlo
     reconnectNow() {
       if (!recycleCurrent) return false;
       log.info("setlog WebSocket：コマンドでつなぎ直す");
+      nextScheduled = false;
       return recycleCurrent();
     },
   };

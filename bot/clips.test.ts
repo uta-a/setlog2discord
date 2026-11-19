@@ -148,7 +148,7 @@ describe("クリップのハンドラ", () => {
     expect(fetches()).toBe(4);
     expect(await run()).toBeUndefined();
     expect(notes.length).toBe(1);
-    expect(notes[0]).toMatch(/10 分ごとに再試行/);
+    expect(notes[0]).toMatch(/5 分ごとに再試行/);
   });
 
   it("Discord への投稿失敗は記録しない。添付の上限超えは failed", async () => {
