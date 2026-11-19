@@ -4,7 +4,7 @@
  *
  * - 知らない userId が来たら取り直す。取り直しても見つからなかった人は、minRefreshMs（既定 5 分）あけるまで取り直さない
  * - アイコンはメディア CDN にある（暗号化されていない。拡張子は .heic でも中身は JPEG だった。実測 2026-11-19）。
- *   Discord に URL を渡さず、取得した画像を添付して embed から参照する。画像はパスごとにメモリに持つ
+ *   Discord に URL を渡さず、取得した画像を友達の Webhook のアイコンに設定する（webhooks.ts）。画像はパスごとにメモリに持つ
  * - 取得に失敗しても投げない（名前やアイコンが分からないだけで投稿を落とさない）
  */
 import { parseTintColor } from "../lib/setlog/media";

@@ -102,17 +102,8 @@ function embedPoster(client: Client, hooks: WebhookDirectory<Webhook>): PostEmbe
       // 名前は友達が自由に付けられるので、書式・リンクとして解釈させない
       const name = escapeMarkdown(post.authorName, { heading: true, maskedLink: true, bulletedList: true, numberedList: true });
       const card = new ContainerBuilder().setAccentColor(post.color ?? DEFAULT_COLOR);
-      const avatar = post.avatar;
-      if (avatar) {
-        // アイコンはセクションの右側のサムネイルとして出す（Components V2 で名前の横に画像を置ける唯一の形）
-        card.addSectionComponents((s) =>
-          s
-            .addTextDisplayComponents((t) => t.setContent(`**${name}**`))
-            .setThumbnailAccessory((th) => th.setURL(`attachment://${avatar.name}`)),
-        );
-      } else {
-        card.addTextDisplayComponents((t) => t.setContent(`**${name}**`));
-      }
+      // アイコンはカードの中に出さない（Webhook の投稿者のアイコンになるので。2026-11-19 に決めた）
+      card.addTextDisplayComponents((t) => t.setContent(`**${name}**`));
       if (post.caption) {
         // 動画のタイトル（setlog のキャプション）は名前の下、動画の上に見出しで出す。友達が自由に書けるので書式として解釈させない
         const title = post.caption
@@ -127,9 +118,7 @@ function embedPoster(client: Client, hooks: WebhookDirectory<Webhook>): PostEmbe
       } else {
         card.addMediaGalleryComponents((g) => g.addItems((i) => i.setURL(`attachment://${post.video.name}`)));
       }
-      const files = [post.video, post.avatar]
-        .filter((f) => f !== undefined)
-        .map((f) => ({ attachment: f.data, name: f.name }));
+      const files = [{ attachment: post.video.data, name: post.video.name }];
       payload = {
         ...common,
         components: [card],
@@ -138,14 +127,13 @@ function embedPoster(client: Client, hooks: WebhookDirectory<Webhook>): PostEmbe
       };
     } else {
       const embed = new EmbedBuilder()
-        .setAuthor({ name: post.authorName, iconURL: post.avatar ? `attachment://${post.avatar.name}` : undefined })
+        .setAuthor({ name: post.authorName })
         .setDescription(post.description)
         .setColor(post.color ?? DEFAULT_COLOR)
         .setFooter({ text: post.groupName });
       if (post.timestamp !== undefined) embed.setTimestamp(post.timestamp);
-      const files = [post.video, post.avatar]
-        .filter((f) => f !== undefined)
-        .map((f) => ({ attachment: f.data, name: f.name }));
+      // アイコンは embed に出さない（Webhook の投稿者のアイコンになるので）
+      const files = post.video ? [{ attachment: post.video.data, name: post.video.name }] : [];
       payload = { ...common, embeds: [embed], files };
       replyTo = post.replyTo;
     }

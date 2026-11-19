@@ -34,6 +34,7 @@ export type ClipCardPost = {
   /** 動画のタイトル（setlog のキャプション）。名前と動画の間に出す。 */
   caption?: string;
   color?: number;
+  /** 送信者のアイコン。Webhook のアイコンにだけ使う（カードの中には出さない）。 */
   avatar?: FileData;
   /** 本体（動画・写真・音声）。 */
   video: FileData;
@@ -53,6 +54,7 @@ export type CardPost = {
   color?: number;
   /** embed のタイムスタンプ（ms）。Discord が見る人の時刻で表示する。 */
   timestamp?: number;
+  /** 送信者のアイコン。Webhook のアイコンにだけ使う（embed には出さない）。 */
   avatar?: FileData;
   video?: FileData;
   /** 返信先の Discord のメッセージ ID。 */
