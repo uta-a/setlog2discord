@@ -37,7 +37,7 @@ setlog は同じアカウントの「最後に接続した 1 本」にしか新�
 サーバーに GitHub の認証情報を置かずに済むよう、Mac で固めて送る。秘密情報と `data/` は `.gitignore` 済みなので入らない。
 
 ```sh
-[Mac]    cd ~/Projects/setlog-webapp
+[Mac]    cd ~/Projects/setlog2discord
 [Mac]    git archive --format=tar.gz -o /tmp/setlog-bot.tgz HEAD
 [Mac]    scp /tmp/setlog-bot.tgz rakko-server:/tmp/ && rm /tmp/setlog-bot.tgz
 
@@ -60,7 +60,7 @@ setlog は同じアカウントの「最後に接続した 1 本」にしか新�
 | `bot.config.json` | guild・チャンネル・グループの対応 |
 
 ```sh
-[Mac]    cd ~/Projects/setlog-webapp
+[Mac]    cd ~/Projects/setlog2discord
 [Mac]    scp .env.local rakko-server:vscode/discord/bots/setlog/.env
 [Mac]    scp .secrets.keybackup.json .secrets.passphrase bot.config.json rakko-server:vscode/discord/bots/setlog/
 
@@ -112,7 +112,7 @@ Mac で動いている Bot を止める（`pnpm start` のターミナルで Ctr
 `/reconnect` は Bot の起動時には登録しない（Discord に一度登録すれば残る。起動のたびに登録すると、再起動を繰り返したときに頻度制限で起動が数十秒遅れた）。初めて導入したときと、`bot/commands.ts` を変えたときだけ登録する。
 
 ```sh
-[server] cd ~/vscode/discord/bots/setlog && ./node_modules/.bin/tsx --env-file=.env tools/register-commands.ts
+[server] cd ~/vscode/discord/bots/setlog && pnpm register-commands
 ```
 
 ## 6. 更新するとき
@@ -137,7 +137,7 @@ Mac で動いている Bot を止める（`pnpm start` のターミナルで Ctr
 | --- | --- |
 | 起動してすぐ止まる | `journalctl --user -u setlog-bot -n 50`。設定ファイル・鍵・パスフレーズの誤りは、その項目名が出る。10 分に 5 回落ちると systemd が止めるので、直したら `deploy/scripts/start.sh`（止められた状態も解除してから起動する） |
 | 「Used disallowed intents」で起動しない | Discord Developer Portal で Bot の MESSAGE CONTENT INTENT を有効にする |
-| `#bot-status` に「トークンが失効した」 | Mac で `tools/setlog-login.ts` の start・verify をやり直し、新しい `.env.local`（サーバーでは `.env`）と `.secrets.keybackup.json` を 3 の手順で置き直して `deploy/scripts/restart.sh` |
+| `#bot-status` に「トークンが失効した」 | Mac で `pnpm setlog-login start <email>`・`pnpm setlog-login verify <email> <code>` をやり直し、新しい `.env.local`（サーバーでは `.env`）と `.secrets.keybackup.json` を 3 の手順で置き直して `deploy/scripts/restart.sh` |
 | 環境変数が「Too small」で起動しない | サービスが読む `.env` に値が入っていない。サーバーに `.env` があり、4 つの値が入っているか確かめる（`.env.local` は読まない） |
 | 通知に「setlog」としか出ない | Bot に投稿先チャンネルの「ウェブフックの管理」権限が無い（`#bot-status` に `Cannot use a webhook` が出る）。権限を足せば次の投稿から友達の名前になる（再起動は要らない） |
 | 新着が届かない | スマホで setlog アプリを開いていると Bot に届かない。5 分以内に戻るのを待つか、Discord で `/reconnect` |
