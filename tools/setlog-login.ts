@@ -3,9 +3,9 @@
  * アカウントの切り替えと、トークン失効時の再登録に使う。
  *
  * 使い方（リポジトリルートで。SETLOG_X_API_KEY が .env.local にあること）:
- *   pnpm exec tsx --env-file=.env.local tools/setlog-login.ts start  <email>
- *   pnpm exec tsx --env-file=.env.local tools/setlog-login.ts verify <email> <code>
- *   pnpm exec tsx --env-file=.env.local tools/setlog-login.ts backup   # 鍵バックアップだけ取り直す
+ *   pnpm setlog-login start  <email>
+ *   pnpm setlog-login verify <email> <code>
+ *   pnpm setlog-login backup   # 鍵バックアップだけ取り直す
  *
  * verify が成功すると:
  *   - .env.local の SETLOG_TOKEN と SETLOG_USER_ID を書き換える（他の行は残す。権限 600）
@@ -47,7 +47,7 @@ async function saveKeyBackup(apiKey: string, token: string): Promise<void> {
 async function main(): Promise<void> {
   const [cmd, email, code] = process.argv.slice(2);
   const apiKey = process.env.SETLOG_X_API_KEY;
-  if (!apiKey) throw new Error("SETLOG_X_API_KEY が未設定（.env.local を --env-file で渡す）");
+  if (!apiKey) throw new Error("SETLOG_X_API_KEY が未設定（.env.local に書いて pnpm setlog-login で実行する）");
   if (cmd === "backup") {
     const token = process.env.SETLOG_TOKEN;
     if (!token) throw new Error("SETLOG_TOKEN が未設定（先に verify を実行する）");
@@ -56,7 +56,7 @@ async function main(): Promise<void> {
     return;
   }
   if (!email || (cmd !== "start" && cmd !== "verify") || (cmd === "verify" && !code)) {
-    throw new Error("使い方: setlog-login.ts start <email> | verify <email> <code> | backup");
+    throw new Error("使い方: pnpm setlog-login start <email> | verify <email> <code> | backup");
   }
 
   const anon = new SetlogClient({ apiKey });

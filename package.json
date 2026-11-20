@@ -9,6 +9,9 @@
   "scripts": {
     "start": "tsx --env-file-if-exists=.env --env-file-if-exists=.env.local bot/main.ts",
     "dev": "tsx watch --env-file-if-exists=.env --env-file-if-exists=.env.local bot/main.ts",
+    "setlog-login": "tsx --env-file-if-exists=.env --env-file-if-exists=.env.local tools/setlog-login.ts",
+    "register-commands": "tsx --env-file-if-exists=.env --env-file-if-exists=.env.local tools/register-commands.ts",
+    "list-members": "tsx --env-file-if-exists=.env --env-file-if-exists=.env.local tools/list-members.ts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },

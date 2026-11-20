@@ -2,8 +2,8 @@
  * Bot のスラッシュコマンド（bot/commands.ts）を、設定した guild にだけ登録し直す。
  * Bot の起動時には登録しないので、コマンドの中身を変えたときだけこれを実行する。
  *
- * 使い方（リポジトリルートで。.env.local と bot.config.json があること）:
- *   pnpm exec tsx --env-file=.env.local tools/register-commands.ts
+ * 使い方（リポジトリルートで。.env.local（サーバーでは .env）と bot.config.json があること）:
+ *   pnpm register-commands
  */
 import { readFileSync } from "node:fs";
 import { Client, Events, GatewayIntentBits } from "discord.js";

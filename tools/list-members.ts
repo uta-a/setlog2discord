@@ -2,8 +2,8 @@
  * 設定したグループのメンバーの名前と setlog のユーザー ID を表示する。
  * bot.config.json の ignoredSenderIds（投稿を Discord に流さない人）を書くときに使う。
  *
- * 使い方（リポジトリルートで。サーバーでは --env-file=.env）:
- *   pnpm exec tsx --env-file=.env.local tools/list-members.ts
+ * 使い方（リポジトリルートで。.env.local（サーバーでは .env）と bot.config.json があること）:
+ *   pnpm list-members
  *
  * 表示するのは名前とユーザー ID だけ（トークンは出さない）。
  */
