@@ -28,15 +28,31 @@ setlog の友達の新着（2秒クリップとグループのテキストチャ
 
 スマホで setlog アプリを開くと、新着が Bot に届かなくなる（setlog は最後に接続した 1 本にだけ送る）。Bot は 5 分ごとにつなぎ直して戻る。すぐ戻したいときは Discord で `/reconnect` を使う（自分だけが使える）。
 
+## コマンド
+
+| コマンド | すること |
+| --- | --- |
+| `pnpm start` | Bot を起動する |
+| `pnpm dev` | ファイルの変更を見て再起動しながら動かす |
+| `pnpm test`・`pnpm typecheck` | テスト・型チェック |
+| `pnpm setlog-login start <email>` → `pnpm setlog-login verify <email> <code>` | setlog にメール OTP でログインし、トークンと鍵バックアップを保存する。`pnpm setlog-login backup` は鍵バックアップだけを取り直す |
+| `pnpm register-commands` | スラッシュコマンドを登録し直す（`bot/commands.ts` を変えたときだけ） |
+| `pnpm list-members` | 設定したグループのメンバーの名前と setlog のユーザー ID を出す |
+
+どれも `.env` と `.env.local` のうち有るほうを読む。サーバーで常駐させたあとの起動・停止は `deploy/scripts/` で行う（[docs/deploy.md](docs/deploy.md) の 5 章）。
+
 ## ディレクトリ
 
 ```
 bot/            Discord Bot
 lib/setlog/     setlog の API クライアント、スキーマ、変換、E2EE 暗号
-docs/           設計書と API 解析メモ
+tools/          運用ツール（setlog へのログイン、スラッシュコマンドの登録、メンバーの一覧）
+tools/capture/  解析用のキャプチャツール
+deploy/         systemd のユニットファイルと、サービスを操作するスクリプト（scripts/）
+docs/           設計書、API 解析メモ、導入手順
 fixtures/       伏せ字済みのレスポンス例（コミットする）
 captures/       生のキャプチャ（git 管理外。トークンや実名を含む）
-tools/capture/  解析用のキャプチャツール
+data/           Bot の状態ストア（git 管理外）
 ```
 
 APK、jadx の出力、HAR、鍵バックアップとパスフレーズ（`.secrets.*`）などは `.gitignore` で除外している。
