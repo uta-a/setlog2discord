@@ -1,8 +1,8 @@
-# setlog-webapp
+# setlog2discord
 
 setlog の友達の新着（2秒クリップとグループのテキストチャット）を、自分専用の Discord サーバーに流す Bot。Discord からグループチャットへの返信もできる。自宅の Ubuntu Server で常駐させる。非公開リポジトリとして扱い、公開・再配布はしない。
 
-> 当初は Web ビューアとして作っていたが、2026-11-18 に Discord Bot へ方針を変えた。リポジトリ名は当面そのまま。
+> 当初は Web ビューアとして作っていたが、2026-11-18 に Discord Bot へ方針を変えた。リポジトリ名も 2026-11-21 に `setlog-webapp` から `setlog2discord` に変えた。
 
 - 設計書：[docs/design.md](docs/design.md)
 - API 解析メモ：[docs/api.md](docs/api.md)（WebSocket は 4.9 節）

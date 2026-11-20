@@ -37,7 +37,7 @@ setlog は同じアカウントの「最後に接続した 1 本」にしか新�
 サーバーに GitHub の認証情報を置かずに済むよう、Mac で固めて送る。秘密情報と `data/` は `.gitignore` 済みなので入らない。
 
 ```sh
-[Mac]    cd ~/Projects/setlog-webapp
+[Mac]    cd ~/Projects/setlog2discord
 [Mac]    git archive --format=tar.gz -o /tmp/setlog-bot.tgz HEAD
 [Mac]    scp /tmp/setlog-bot.tgz rakko-server:/tmp/ && rm /tmp/setlog-bot.tgz
 
@@ -60,7 +60,7 @@ setlog は同じアカウントの「最後に接続した 1 本」にしか新�
 | `bot.config.json` | guild・チャンネル・グループの対応 |
 
 ```sh
-[Mac]    cd ~/Projects/setlog-webapp
+[Mac]    cd ~/Projects/setlog2discord
 [Mac]    scp .env.local rakko-server:vscode/discord/bots/setlog/.env
 [Mac]    scp .secrets.keybackup.json .secrets.passphrase bot.config.json rakko-server:vscode/discord/bots/setlog/
 
