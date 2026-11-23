@@ -196,10 +196,12 @@ setlog の友達の新着（2秒クリップとグループのテキストチャ
 3. 添付は Discord の CDN（`cdn.discordapp.com`・`media.discordapp.net` の https）からだけ取得し、リダイレクトはたどらない（`bot/attachments.ts`）
 4. 宛先と鍵の確かめ方は 7.3 と同じ。`encryptMedia` で暗号化する：ファイル全体を 1 回の ChaCha20-Poly1305 で封じ（nonce 12 バイト + 暗号文 + tag 16 バイト）、AAD は v1 の content info（`msg:enc:v1|conv:{conversationId}|msg:{messageId}|sender:{自分}|type:{MIME}`）。content key は 7.3 と同じく参加者と自分宛にラップする
 5. `POST https://api-kr.newchatapi.com/media/getUploadURL` で置き場所を発行してもらい（リージョンは `ap-northeast-2`。アプリは日本のロケールでこれを選ぶ）、返った `uploadUrl` に暗号文を `PUT` する（setlog のトークンは付けない）。`uploadUrl` が https でなければ送らない
-6. `POST chat/{conversationId}/message` で `type=snap` のメッセージを送る。`media.path` は発行された `key`、`contentType` と `media.mimeType` は暗号化に使った MIME、`mediaCipherV` と鍵エントリの `v` は 1（アプリがチャットから送るときの値）。幅・高さは Discord の添付が持っていれば `media.dimensions` に入れる。`permission` は `allow_saving`
+6. `POST chat/{conversationId}/message` で `type=snap` のメッセージを送る。`media.path` は発行された `key`、`contentType` と `media.mimeType` は暗号化に使った MIME、`mediaCipherV` と鍵エントリの `v` は 1（アプリが撮影してチャットに送る経路での値。受信側は v1・v2 の AAD を両方試す）。幅・高さは Discord の添付が持っていれば `media.dimensions` に入れる。`permission` は `allow_saving`
 7. 返信先（`parentId`）は最初に送れた 1 件にだけ付ける。`sent_messages` には最初に送れた 1 件を記録する（表は Discord の発言 1 件につき 1 行のまま）
 
 送れないものがあっても残りは送り、送れなかったものを名前と理由付きで元の発言に返信する。メッセージの送信は自動で送り直さない（応答が失われただけなら友達の画面で二重になるため）。
+
+添付の取得とアップロードは発言ごとに進むので、画像を送った直後に次の発言でテキストを送ると、setlog ではテキストが先に並ぶことがある（許容する）。
 
 ### 7.5 リアクションの同期（Discord → setlog）
 
