@@ -31,6 +31,27 @@ import type { Envelope, MessageKeyEntry } from "./crypto";
 
 export const SETLOG_BASE_URL = "https://api.newchatapi.com";
 
+/**
+ * メディアを置くリージョン。アプリは端末のロケールの国で決め、JP・KR などアジアは ap-northeast-2、
+ * それ以外は us-east-1（yn3.a）。この Bot の持ち主は日本なので固定する（受信した写真・動画の media.region も ap-northeast-2）。
+ */
+export const MEDIA_REGION = "ap-northeast-2";
+
+/** アップロード URL を発行する API の基底。ap-northeast-2 だけ別ホスト（yn3.b）。 */
+export function mediaApiBaseUrl(region: string): string {
+  return region.toLowerCase() === "ap-northeast-2" ? "https://api-kr.newchatapi.com/media" : "https://api.newchatapi.com/media";
+}
+
+/** 送れる画像・動画の MIME。アプリが拡張子を知っているもの（i31）のうち、Discord から来るもの。 */
+export const SENDABLE_MEDIA_TYPES = ["image/jpeg", "image/png", "image/webp", "video/mp4", "video/quicktime"] as const;
+export type SendableMediaType = (typeof SENDABLE_MEDIA_TYPES)[number];
+
+/** getUploadURL の応答。API Gateway の形で body に JSON 文字列が入って返ることもある（vb1.E）。 */
+const UploadUrlResponseSchema = z
+  .object({ uploadUrl: z.string().min(1).optional(), url: z.string().min(1).optional(), region: z.string().min(1), key: z.string().min(1) })
+  .loose()
+  .refine((r) => r.uploadUrl ?? r.url, { message: "uploadUrl が無い" });
+
 export type SetlogConfig = {
   /** API Gateway の固定キー（40 文字）。実値は環境変数から。 */
   apiKey: string;
@@ -38,6 +59,8 @@ export type SetlogConfig = {
   token?: string;
   /** 基底 URL（テスト差し替え用）。 */
   baseUrl?: string;
+  /** アップロード URL を発行する API の基底（テスト差し替え用）。既定はリージョンで決める（mediaApiBaseUrl）。 */
+  mediaApiBaseUrl?: string;
   /** 最小リクエスト間隔(ms)。アプリ並みに抑える。既定 1000。 */
   minIntervalMs?: number;
   /** 1 リクエストの上限(ms)。直列なので 1 本が固まると後続がすべて止まる。既定 30000。 */
@@ -135,10 +158,24 @@ export class SetlogClient {
     schema: z.ZodType<T>,
     init: RequestInit & { withAuth?: boolean } = {},
   ): Promise<T> {
+    return this.call(`${this.baseUrl}${endpoint}`, endpoint, init, async (res) => {
+      const parsed = schema.safeParse(await res.json());
+      if (!parsed.success) throw new SetlogSchemaError(endpoint, parsed.error.issues);
+      return parsed.data;
+    });
+  }
+
+  /** 直列化・レート制限・認証ヘッダー・401 と HTTP エラーの判定までを行い、2xx の応答を read に渡す。 */
+  private async call<T>(
+    url: string,
+    endpoint: string,
+    init: RequestInit & { withAuth?: boolean },
+    read: (res: Response) => Promise<T>,
+  ): Promise<T> {
     return this.serialize(async () => {
       await this.throttle();
       const { withAuth = true, ...rest } = init;
-      const res = await this.fetchImpl(`${this.baseUrl}${endpoint}`, {
+      const res = await this.fetchImpl(url, {
         signal: AbortSignal.timeout(this.config.timeoutMs ?? 30_000),
         ...rest,
         headers: { ...this.headers(withAuth), ...(rest.headers as Record<string, string>) },
@@ -147,10 +184,7 @@ export class SetlogClient {
       if (!res.ok) {
         throw new SetlogHttpError(res.status, endpoint, await res.text().catch(() => ""));
       }
-      const json = await res.json();
-      const parsed = schema.safeParse(json);
-      if (!parsed.success) throw new SetlogSchemaError(endpoint, parsed.error.issues);
-      return parsed.data;
+      return read(res);
     });
   }
 
@@ -287,6 +321,138 @@ export class SetlogClient {
     );
     return r.messageId;
   }
+
+  // --- 画像・動画の送信 -------------------------------------------------
+
+  /**
+   * 暗号化したメディアの置き場所を発行してもらう（POST {media API}/getUploadURL、vb1.E）。
+   * 返る key が media.path に、region が media.region になる。
+   */
+  async getUploadUrl(region = MEDIA_REGION): Promise<{ uploadUrl: string; region: string; key: string }> {
+    const endpoint = "/media/getUploadURL";
+    const base = this.config.mediaApiBaseUrl ?? mediaApiBaseUrl(region);
+    return this.call(
+      `${base}/getUploadURL`,
+      endpoint,
+      { method: "POST", body: JSON.stringify({ contentType: "application/octet-stream", region, encrypted: true }) },
+      async (res) => {
+        let json: unknown = await res.json();
+        // API Gateway のプロキシ形式（{ body: "<JSON 文字列>" }）なら中身を使う
+        if (json && typeof json === "object" && typeof (json as { body?: unknown }).body === "string") {
+          try {
+            json = JSON.parse((json as { body: string }).body);
+          } catch {
+            // 文字列が JSON でなければ外側をそのまま検証する
+          }
+        }
+        const parsed = UploadUrlResponseSchema.safeParse(json);
+        if (!parsed.success) throw new SetlogSchemaError(endpoint, parsed.error.issues);
+        const uploadUrl = (parsed.data.uploadUrl ?? parsed.data.url)!;
+        let u: URL;
+        try {
+          u = new URL(uploadUrl);
+        } catch {
+          throw new SetlogSchemaError(endpoint, [{ message: "uploadUrl が URL でない" }]);
+        }
+        // 暗号文とはいえ平文の http には送らない
+        if (u.protocol !== "https:") throw new SetlogSchemaError(endpoint, [{ message: "uploadUrl が https でない" }]);
+        return { uploadUrl, region: parsed.data.region, key: parsed.data.key };
+      },
+    );
+  }
+
+  /**
+   * 暗号文を発行された URL に PUT する（dt2）。署名付き URL なので setlog のトークンと x-api-key は送らない。
+   * 大きいので直列キューには載せず、タイムアウトも長めにする。
+   */
+  async uploadMedia(uploadUrl: string, cipher: Buffer, opts: { timeoutMs?: number } = {}): Promise<void> {
+    if (new URL(uploadUrl).protocol !== "https:") throw new Error("uploadUrl が https でない");
+    const res = await this.fetchImpl(uploadUrl, {
+      method: "PUT",
+      headers: { "Content-Type": "application/octet-stream" },
+      body: new Uint8Array(cipher),
+      redirect: "error",
+      signal: AbortSignal.timeout(opts.timeoutMs ?? 120_000),
+    });
+    if (!res.ok) {
+      await res.body?.cancel().catch(() => {});
+      // 応答本文（S3 のエラー XML）には署名付き URL の断片が入りうるので残さない
+      throw new SetlogHttpError(res.status, "PUT <uploadUrl>", "");
+    }
+    await res.body?.cancel().catch(() => {});
+  }
+
+  /**
+   * 画像・動画を snap として送る（POST /chat/{conversationId}/message、fn1.a）。**アカウントへの書き込み。**
+   * アプリがチャットから写真・動画を送るときと同じ形：type=snap、本文（envelope）は無く、media と mediaCipherV=1 を付ける。
+   * contentType・media.mimeType は暗号化に使った MIME と同じにする（AAD に入るので）。
+   */
+  async sendMediaMessage(params: {
+    conversationId: string;
+    messageId: string;
+    mimeType: SendableMediaType;
+    keys: MessageKeyEntry[];
+    media: { path: string; region: string; width?: number; height?: number };
+    parentId?: string;
+  }): Promise<string> {
+    const { width, height } = params.media;
+    const body = {
+      type: "snap",
+      conversationId: params.conversationId,
+      messageId: params.messageId,
+      uuid: crypto.randomUUID(),
+      refreshesStaleKeys: true,
+      ...(params.parentId?.trim() ? { parentId: params.parentId } : {}),
+      contentType: params.mimeType,
+      keys: params.keys,
+      media: {
+        path: params.media.path,
+        region: params.media.region,
+        mimeType: params.mimeType,
+        // アプリは幅と高さが両方とも正のときだけ入れる
+        ...(width && height && width > 0 && height > 0 ? { dimensions: { width, height } } : {}),
+        permission: "allow_saving",
+      },
+      mediaCipherV: 1,
+    };
+    const r = await this.request(
+      `/chat/${params.conversationId}/message`,
+      SendMessageResponseSchema,
+      { method: "POST", body: JSON.stringify(body) },
+    );
+    return r.messageId;
+  }
+
+  // --- リアクション -----------------------------------------------------
+
+  /**
+   * メッセージにリアクションを付ける（POST /chat/message/addReaction、q74.d）。**友達に見える書き込み。**
+   * text は絵文字そのもの（暗号化しない）。id はリアクションごとの UUID。factor・scale はアプリの既定値（1）。
+   * 応答の形は分かっていないので、2xx なら本文を読まずに成功とする。
+   */
+  async addReaction(params: { conversationId: string; messageId: string; text: string }): Promise<void> {
+    const endpoint = "/chat/message/addReaction";
+    const body = {
+      conversationId: params.conversationId,
+      messageId: params.messageId,
+      id: crypto.randomUUID(),
+      text: params.text,
+      factor: 1,
+      scale: 1,
+    };
+    await this.call(`${this.baseUrl}${endpoint}`, endpoint, { method: "POST", body: JSON.stringify(body) }, discardBody);
+  }
+
+  /** リアクションを外す（POST /chat/message/removeReaction、q74.H）。どれを外すかは text で決まる。 */
+  async removeReaction(params: { conversationId: string; messageId: string; text: string }): Promise<void> {
+    const endpoint = "/chat/message/removeReaction";
+    const body = { conversationId: params.conversationId, messageId: params.messageId, text: params.text };
+    await this.call(`${this.baseUrl}${endpoint}`, endpoint, { method: "POST", body: JSON.stringify(body) }, discardBody);
+  }
+}
+
+async function discardBody(res: Response): Promise<void> {
+  await res.body?.cancel().catch(() => {});
 }
 
 /** 環境変数から設定を組む（Route Handlers / Workers 用）。 */
