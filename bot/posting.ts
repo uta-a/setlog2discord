@@ -38,7 +38,7 @@ export type ClipCardPost = {
   avatar?: FileData;
   /** 本体（動画・写真・音声）。 */
   video: FileData;
-  /** 音声など、動画・画像の枠では表示できないものはファイルの部品で出す。 */
+  /** 音声など、動画・画像の枠では表示できないものはファイルの部品で出す（音声は mp3 にしてある。clips.ts）。 */
   asFile?: boolean;
 };
 
