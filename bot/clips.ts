@@ -14,6 +14,8 @@
  *
  * 音声（m4a）は Discord がその場で再生しないので、mp3 に変換してからファイルの部品で出す（2026-11-23 に追加。audio.ts）。
  * 変換できないとき（ffmpeg が無いなど）は元のファイルのまま投稿し、#bot-status には起動中に 1 回だけ知らせる。
+ * HEIC の写真は Discord が表示できないので、JPEG に変換してから画像の枠で出す（2026-11-23 に追加。image.ts）。
+ * 変換できないときは元の .heic をファイルの部品で出す（画像の枠に入れると「画像を読み込めませんでした」になる）。通知は音声と同じく 1 回だけ。
  *
  * mp4 はメモリの Buffer のまま渡し、ディスクには書かない（音声の変換だけは ffmpeg のために一時ファイルを使う）。
  * 通知に本文やメンバー名は出さない。
@@ -26,6 +28,8 @@ import {
   type Keyring,
 } from "../lib/setlog/media";
 import { canConvertToMp3, type Mp3Converter } from "./audio";
+import { canConvertToJpeg, type JpegConverter } from "./image";
+import { sniffImage } from "./members";
 import { short, type HandlerResult, type IncomingMessage } from "./ingest";
 import { log } from "./log";
 import {
@@ -51,6 +55,8 @@ export type ClipDeps = AuthorDeps & {
   nameTimeoutMs?: number;
   /** 音声を mp3 に変換する（audio.ts）。無ければ変換せずに投稿する。 */
   toMp3?: Mp3Converter;
+  /** HEIC の写真を JPEG に変換する（image.ts）。無ければ変換せず、ファイルの部品で投稿する。 */
+  toJpeg?: JpegConverter;
 };
 
 export type ClipHandler = ((m: IncomingMessage) => Promise<HandlerResult>) & {
@@ -60,7 +66,10 @@ export type ClipHandler = ((m: IncomingMessage) => Promise<HandlerResult>) & {
 
 export const clipNonce = (messageId: string) => makeNonce("clip", messageId);
 
-const EXT: Record<string, string> = { "video/mp4": "mp4", "video/quicktime": "mov", "audio/mp4": "m4a", "audio/aac": "aac", "audio/mpeg": "mp3", "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "image/gif": "gif", "image/heic": "heic" };
+/** 中身から見た画像の形式 → mime。 */
+const SNIFFED_MIME = { jpg: "image/jpeg", png: "image/png", webp: "image/webp", gif: "image/gif" } as const;
+
+const EXT: Record<string, string> = { "video/mp4": "mp4", "video/quicktime": "mov", "audio/mp4": "m4a", "audio/aac": "aac", "audio/mpeg": "mp3", "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "image/gif": "gif", "image/heic": "heic", "image/heif": "heif" };
 
 function fileName(ts: number, messageId: string, mime: string): string {
   const w = new Date(ts + 9 * 60 * 60 * 1000);
@@ -75,6 +84,7 @@ export function createClipHandler(deps: ClipDeps): ClipHandler {
   const nameTimeoutMs = deps.nameTimeoutMs ?? 5000;
   const out = createOutcomes(deps.notify);
   let convertFailureNotified = false;
+  let imageConvertFailureNotified = false;
 
   /** 音声を mp3 にする。できなければ元のまま返す（投稿は止めない）。 */
   async function playableAudio(data: Buffer, mimeType: string, where: string): Promise<{ data: Buffer; mimeType: string }> {
@@ -89,6 +99,26 @@ export function createClipHandler(deps: ClipDeps): ClipHandler {
         void deps.notify(`${text}. Posting the original file instead (it cannot be played in Discord). Further failures are only logged.`);
       }
       return { data, mimeType };
+    }
+  }
+
+  /** HEIC の写真を JPEG にする。できなければ元のまま、ファイルの部品で出すよう asFile を付けて返す。 */
+  async function viewableImage(data: Buffer, mimeType: string, where: string): Promise<{ data: Buffer; mimeType: string; asFile?: boolean }> {
+    if (!canConvertToJpeg(mimeType)) return { data, mimeType };
+    // HEIC と名乗って中身が JPEG などのこともある（アイコンで観測。設計書7.1）。それならそのまま出す
+    const sniffed = sniffImage(data);
+    if (sniffed) return { data, mimeType: SNIFFED_MIME[sniffed] };
+    if (!deps.toJpeg) return { data, mimeType, asFile: true };
+    try {
+      return { data: await deps.toJpeg(data, mimeType), mimeType: "image/jpeg" };
+    } catch (e) {
+      const text = `Photo could not be converted to JPEG (${where}): ${e instanceof Error ? e.message : String(e)}`;
+      log.warn(text);
+      if (!imageConvertFailureNotified) {
+        imageConvertFailureNotified = true;
+        void deps.notify(`${text}. Posting the original HEIC file instead (it cannot be shown in Discord). Further failures are only logged.`);
+      }
+      return { data, mimeType, asFile: true };
     }
   }
 
@@ -129,7 +159,12 @@ export function createClipHandler(deps: ClipDeps): ClipHandler {
       throw e;
     }
 
-    const body = m.kind === "audio" ? await playableAudio(mp4, clip.media.mimeType, where) : { data: mp4, mimeType: clip.media.mimeType };
+    const body: { data: Buffer; mimeType: string; asFile?: boolean } =
+      m.kind === "audio"
+        ? { ...(await playableAudio(mp4, clip.media.mimeType, where)), asFile: true }
+        : m.kind === "photo"
+          ? await viewableImage(mp4, clip.media.mimeType, where)
+          : { data: mp4, mimeType: clip.media.mimeType };
 
     // 名前とアイコンを動画の上に出す（時刻・グループ名は出さない。色はカードの帯に使う）
     const author = await resolveAuthor(deps, clip.senderId, clip.senderName, nameTimeoutMs);
@@ -142,7 +177,7 @@ export function createClipHandler(deps: ClipDeps): ClipHandler {
           authorId: clip.senderId,
           authorName: author.name,
           ...(caption ? { caption } : {}),
-          ...(m.kind === "audio" ? { asFile: true } : {}),
+          ...(body.asFile ? { asFile: true } : {}),
           color: author.color,
           avatar: author.avatar,
           video: { name: fileName(clip.timestamp, id, body.mimeType), data: body.data },

@@ -180,6 +180,93 @@ describe("クリップのハンドラ", () => {
     expect(posts[0].size).toBe(JPG.length);
   });
 
+  /** HEIC の写真を暗号化して、それを返すハンドラを作る。 */
+  function heicSetup(over: Partial<ClipDeps> = {}, content?: Buffer) {
+    const me = keypair();
+    const HEIC = content ?? Buffer.concat([Buffer.from("\0\0\0\x24ftypheic"), randomBytes(32)]);
+    const base = makeEncryptedClip(me, HEIC, {});
+    const photo = makeEncryptedClip(me, HEIC, { type: "snap", contentType: "image/heic", media: { ...base.clip.media, mimeType: "image/heic" } }, "image/heic");
+    const posts: ClipCardPost[] = [];
+    const notes: string[] = [];
+    const h = createClipHandler({
+      keyring: new Map([["kid-me", me.priv]]),
+      myUserId: "u-me",
+      fetchMedia: async () => photo.bytes,
+      post: async (_c, p) => {
+        if (p.layout !== "clip") throw new Error("x");
+        posts.push(p);
+        return "d";
+      },
+      profile: async () => ({ name: "たろう" }),
+      avatar: async () => undefined,
+      notify: async (t) => {
+        notes.push(t);
+      },
+      ...over,
+    });
+    const run = () => h({ kind: "photo", group, message: photo.clip as unknown as MessageHead });
+    return { run, posts, notes, HEIC };
+  }
+
+  it("HEIC の写真は JPEG に変換して画像の枠で投稿する（Discord は HEIC を表示できない。2026-11-23 実例）", async () => {
+    const JPG = Buffer.concat([JPEG, randomBytes(16)]);
+    const calls: { image: Buffer; mime: string }[] = [];
+    const { run, posts, HEIC } = heicSetup({
+      toJpeg: async (image, mime) => {
+        calls.push({ image, mime });
+        return JPG;
+      },
+    });
+    expect((await run())?.result).toBe("posted");
+    expect(calls).toEqual([{ image: HEIC, mime: "image/heic" }]);
+    expect(posts[0].video.name).toMatch(/\.jpg$/);
+    expect(posts[0].video.data).toEqual(JPG);
+    expect(posts[0].asFile).toBeUndefined();
+  });
+
+  it("JPEG に変換できなければ元の .heic をファイルの部品で投稿し、#bot-status には 1 回だけ知らせる", async () => {
+    const { run, posts, notes, HEIC } = heicSetup({
+      toJpeg: async () => {
+        throw new Error("could not decode");
+      },
+    });
+    expect((await run())?.result).toBe("posted");
+    expect((await run())?.result).toBe("posted");
+    expect(posts.map((p) => p.video.name)).toEqual([expect.stringMatching(/\.heic$/), expect.stringMatching(/\.heic$/)]);
+    expect(posts[0].video.data).toEqual(HEIC);
+    // 画像の枠に入れると「画像を読み込めませんでした」になるので、ファイルで出す
+    expect(posts.map((p) => p.asFile)).toEqual([true, true]);
+    expect(notes).toHaveLength(1);
+    expect(notes[0]).toMatch(/JPEG/);
+    expect(notes[0]).toMatch(/could not decode/);
+  });
+
+  it("HEIC と名乗って中身が JPEG なら、変換せずに .jpg で画像の枠に出す", async () => {
+    const JPG = Buffer.concat([JPEG, randomBytes(16)]);
+    let calls = 0;
+    const { run, posts } = heicSetup(
+      {
+        toJpeg: async () => {
+          calls++;
+          return Buffer.from("x");
+        },
+      },
+      JPG,
+    );
+    await run();
+    expect(calls).toBe(0);
+    expect(posts[0].video.name).toMatch(/\.jpg$/);
+    expect(posts[0].video.data).toEqual(JPG);
+    expect(posts[0].asFile).toBeUndefined();
+  });
+
+  it("変換器が無ければ HEIC はファイルの部品で投稿する", async () => {
+    const { run, posts } = heicSetup();
+    await run();
+    expect(posts[0].video.name).toMatch(/\.heic$/);
+    expect(posts[0].asFile).toBe(true);
+  });
+
   it("削除済みは投稿せず skipped", async () => {
     const { run, posts } = setup({}, { isDeleted: true });
     expect(await run()).toEqual({ result: "skipped" });
