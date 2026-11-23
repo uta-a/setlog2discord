@@ -10,6 +10,7 @@
  */
 import { SetlogAuthError, SetlogClient, SetlogSchemaError } from "../lib/setlog/client";
 import { fetchMedia, type Keyring } from "../lib/setlog/media";
+import { createMp3Converter } from "./audio";
 import { createBackfillGate } from "./backfill-gate";
 import { createClipHandler } from "./clips";
 import type { BotConfig } from "./config";
@@ -57,6 +58,7 @@ export function startReceiver(
     keyring: opts.keyring,
     myUserId: config.setlog.userId,
     fetchMedia: (path) => fetchMedia(path),
+    toMp3: createMp3Converter(),
     post: opts.post,
     profile: (id) => members.profile(id),
     avatar: (path) => members.avatar(path),
