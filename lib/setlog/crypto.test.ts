@@ -15,6 +15,7 @@ import {
   decryptMedia,
   decryptText,
   deriveKey,
+  encryptMedia,
   encryptText,
   rawOfPublicKey,
   rawToPrivateKey,
@@ -121,6 +122,55 @@ describe("メディア復号（pb3.b 方式：全体 1 回の AEAD、鍵=content
     const info = contentInfo("c", "m", "s", "video/mp4", 1);
     const fileBytes = aeadSeal(contentKey, Buffer.from("x"), Buffer.from(info, "utf-8"), randomBytes(12));
     expect(() => decryptMedia(contentKey, fileBytes, "c", "m", "s", ["image/png"])).toThrow();
+  });
+});
+
+describe("メディア送信（encryptMedia）", () => {
+  it("友達も自分も、keys[] の自分宛から content key を開いて元のファイルに戻せる", () => {
+    const me = genPair();
+    const friend = genPair();
+    const meB64 = me.rawPub.toString("base64");
+    const bytes = randomBytes(70_000); // 64 KiB を超える（アプリはストリームで暗号化するが、形は全体 1 回の AEAD）
+    const { cipher, keys } = encryptMedia({
+      bytes,
+      mime: "image/png",
+      convId: "conv-1",
+      msgId: "msg-1",
+      senderId: "u-me",
+      myPriv: me.privateKey,
+      sender: { kid: "kid-me", publicKeyB64: meB64 },
+      recipients: [
+        { uid: "u-friend", kid: "kid-friend", publicKeyB64: friend.rawPub.toString("base64") },
+        { uid: "u-me", kid: "kid-me", publicKeyB64: meB64 },
+      ],
+    });
+    expect(cipher.length).toBe(12 + bytes.length + 16);
+    for (const [uid, priv] of [["u-friend", friend.privateKey], ["u-me", me.privateKey]] as const) {
+      const entry = keys.find((k) => k.uid === uid)!;
+      const ck = unwrapContentKey(entry, priv, "conv-1", "u-me");
+      expect(decryptMedia(ck, cipher, "conv-1", "msg-1", "u-me", ["image/png"]).equals(bytes)).toBe(true);
+    }
+  });
+
+  it("AAD はアプリと同じ v1 の content info、鍵エントリも v=1（受信側は max(keys.v, mediaCipherV) で AAD を選ぶ）", () => {
+    const me = genPair();
+    const meB64 = me.rawPub.toString("base64");
+    const bytes = Buffer.from("jpeg");
+    const { cipher, keys } = encryptMedia({
+      bytes,
+      mime: "image/jpeg",
+      convId: "c",
+      msgId: "m",
+      senderId: "s",
+      myPriv: me.privateKey,
+      sender: { kid: "kid-me", publicKeyB64: meB64 },
+      recipients: [{ uid: "s", kid: "kid-me", publicKeyB64: meB64 }],
+    });
+    expect(keys.map((k) => [k.v, k.alg, k.senderKid])).toEqual([[1, "X25519-HKDF-SHA256+CHACHA20-POLY1305", "kid-me"]]);
+    const ck = unwrapContentKey(keys[0], me.privateKey, "c", "s");
+    // cq3.l の文字列そのもの（v2 の media-v2|shared-media ではない）
+    const aad = Buffer.from("msg:enc:v1|conv:c|msg:m|sender:s|type:image/jpeg", "utf-8");
+    expect(aeadOpen(ck, cipher, aad).equals(bytes)).toBe(true);
   });
 });
 

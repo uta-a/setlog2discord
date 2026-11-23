@@ -1,13 +1,24 @@
 import { describe, expect, it } from "vitest";
 import { SetlogAuthError } from "../lib/setlog/client";
-import { decryptText } from "../lib/setlog/crypto";
+import { decryptMedia, decryptText, unwrapContentKey } from "../lib/setlog/crypto";
 import { keypair } from "../lib/setlog/test-helpers";
-import { SendError, createSender, resolveParent, type SenderDeps } from "./sender";
+import {
+  MAX_MEDIA_BYTES,
+  SendError,
+  createSender,
+  isSendableMediaType,
+  resolveParent,
+  sendParts,
+  type OutgoingPart,
+  type SenderDeps,
+} from "./sender";
 
 function setup(over: Partial<SenderDeps> = {}) {
   const me = keypair();
   const friend = keypair();
   const sent: Parameters<SenderDeps["sendTextMessage"]>[0][] = [];
+  const sentMedia: Parameters<SenderDeps["sendMediaMessage"]>[0][] = [];
+  const uploads: { url: string; cipher: Buffer }[] = [];
   let keyCalls = 0;
   let t = 0;
   // 実物の participantKeys は自分を含まなかった（2026-11-19）。自分の鍵はプロフィールから取る
@@ -24,10 +35,18 @@ function setup(over: Partial<SenderDeps> = {}) {
       sent.push(p);
       return p.messageId;
     },
+    getUploadUrl: async () => ({ uploadUrl: "https://bucket/put?sig", region: "ap-northeast-2", key: "ap/uploads/u-me/1-x" }),
+    uploadMedia: async (url, cipher) => {
+      uploads.push({ url, cipher });
+    },
+    sendMediaMessage: async (p) => {
+      sentMedia.push(p);
+      return p.messageId;
+    },
     now: () => t,
     ...over,
   });
-  return { sender, sent, me, friend, participants, keyCalls: () => keyCalls, tick: (ms: number) => (t += ms) };
+  return { sender, sent, sentMedia, uploads, me, friend, participants, keyCalls: () => keyCalls, tick: (ms: number) => (t += ms) };
 }
 
 describe("createSender", () => {
@@ -113,6 +132,77 @@ describe("createSender", () => {
   });
 });
 
+describe("createSender.sendMedia", () => {
+  const jpeg = Buffer.from("ffd8ffe0-fake-jpeg", "utf-8");
+
+  it("暗号化して置き、置いた場所を media.path にして snap を送る。友達も自分も開ける", async () => {
+    const { sender, sentMedia, uploads, me, friend } = setup();
+    const { messageId } = await sender.sendMedia("conv-1", { data: jpeg, mimeType: "IMAGE/JPEG", width: 720, height: 1280 }, { parentId: "m-p" });
+    expect(uploads.length).toBe(1);
+    expect(uploads[0].cipher.includes(jpeg)).toBe(false);
+    const p = sentMedia[0];
+    expect(p).toMatchObject({
+      conversationId: "conv-1",
+      messageId,
+      mimeType: "image/jpeg",
+      parentId: "m-p",
+      media: { path: "ap/uploads/u-me/1-x", region: "ap-northeast-2", width: 720, height: 1280 },
+    });
+    expect(p.keys.map((k) => k.uid).sort()).toEqual(["u-friend", "u-me"]);
+    for (const [uid, priv] of [["u-friend", friend.priv], ["u-me", me.priv]] as const) {
+      const ck = unwrapContentKey(p.keys.find((k) => k.uid === uid)!, priv, "conv-1", "u-me");
+      // 受信側は送信本文の contentType（= media.mimeType）を AAD に使う
+      expect(decryptMedia(ck, uploads[0].cipher, "conv-1", messageId, "u-me", [p.mimeType]).equals(jpeg)).toBe(true);
+    }
+  });
+
+  it("送れない形式・空・大きすぎるものは、アップロードもせずに断る", async () => {
+    const { sender, sentMedia, uploads } = setup();
+    await expect(sender.sendMedia("c", { data: jpeg, mimeType: "image/gif" })).rejects.toThrow(/unsupported file type/);
+    await expect(sender.sendMedia("c", { data: jpeg, mimeType: "" })).rejects.toThrow(/unsupported/);
+    await expect(sender.sendMedia("c", { data: Buffer.alloc(0), mimeType: "video/mp4" })).rejects.toThrow(/empty/);
+    await expect(sender.sendMedia("c", { data: Buffer.alloc(MAX_MEDIA_BYTES + 1), mimeType: "video/mp4" })).rejects.toThrow(/too large/);
+    expect([...uploads, ...sentMedia]).toEqual([]);
+    expect(isSendableMediaType("video/quicktime")).toBe(true);
+    expect(isSendableMediaType("application/pdf")).toBe(false);
+  });
+
+  it("アップロードに失敗したらメッセージは送らない", async () => {
+    const s = setup({
+      uploadMedia: async () => {
+        throw new Error("HTTP 403");
+      },
+    });
+    await expect(s.sender.sendMedia("c", { data: jpeg, mimeType: "image/jpeg" })).rejects.toThrow(/failed to upload/);
+    expect(s.sentMedia).toEqual([]);
+  });
+
+  it("送信の失敗とトークン失効は分かる理由にする（送り直さない）", async () => {
+    let calls = 0;
+    const s = setup({
+      sendMediaMessage: async () => {
+        calls++;
+        throw new Error("500");
+      },
+    });
+    await expect(s.sender.sendMedia("c", { data: jpeg, mimeType: "image/jpeg" })).rejects.toThrow(/failed to send/);
+    expect(calls).toBe(1);
+    const t = setup({
+      getUploadUrl: async () => {
+        throw new SetlogAuthError();
+      },
+    });
+    await expect(t.sender.sendMedia("c", { data: jpeg, mimeType: "image/jpeg" })).rejects.toThrow(/expired/);
+  });
+
+  it("幅・高さが分からなければ入れない", async () => {
+    const { sender, sentMedia } = setup();
+    await sender.sendMedia("c", { data: jpeg, mimeType: "video/mp4", width: null, height: null });
+    expect(sentMedia[0].media.width).toBeUndefined();
+    expect(sentMedia[0].media.height).toBeUndefined();
+  });
+});
+
 describe("resolveParent", () => {
   const table: Record<string, { messageId: string; conversationId: string }> = {
     "d-clip": { messageId: "m-clip", conversationId: "conv-1" },
@@ -131,5 +221,66 @@ describe("resolveParent", () => {
   it("返信先が setlog のメッセージでないか、別の会話のものなら送らない", () => {
     expect(() => resolveParent(lookup, "d-status", "conv-1")).toThrow(SendError);
     expect(() => resolveParent(lookup, "d-other", "conv-1")).toThrow(/another conversation/);
+  });
+});
+
+describe("sendParts", () => {
+  const jpeg = Buffer.from("jpeg");
+  const media = (name: string, over: Partial<Extract<OutgoingPart, { kind: "media" }>> = {}): OutgoingPart => ({
+    kind: "media",
+    name,
+    mimeType: "image/jpeg",
+    size: jpeg.length,
+    load: async () => jpeg,
+    ...over,
+  });
+
+  it("テキスト、添付の順に別々に送り、返信先は最初の 1 件にだけ付ける", async () => {
+    const s = setup();
+    const r = await sendParts(s.sender, "conv-1", [{ kind: "text", text: "見て" }, media("a.jpg"), media("b.jpg")], { parentId: "m-p" });
+    expect(r.failures).toEqual([]);
+    expect(r.sent).toBe(3);
+    expect(s.sent.map((p) => p.parentId)).toEqual(["m-p"]);
+    expect(s.sentMedia.map((p) => p.parentId)).toEqual([undefined, undefined]);
+    expect(r.firstMessageId).toBe(s.sent[0].messageId);
+  });
+
+  it("送れないものがあっても残りは送り、理由を名前付きで返す。送れない形式・大きさなら取得もしない", async () => {
+    const s = setup();
+    let loads = 0;
+    const r = await sendParts(
+      s.sender,
+      "conv-1",
+      [
+        media("anim.gif", { mimeType: "image/gif", load: async () => (loads++, jpeg) }),
+        media("huge.mp4", { mimeType: "video/mp4", size: MAX_MEDIA_BYTES + 1, load: async () => (loads++, jpeg) }),
+        media("ok.jpg"),
+      ],
+      { parentId: "m-p" },
+    );
+    expect(loads).toBe(0);
+    expect(r.sent).toBe(1);
+    expect(r.failures).toEqual([expect.stringMatching(/^anim\.gif: unsupported/), expect.stringMatching(/^huge\.mp4: file too large/)]);
+    // 前の 2 つが送れなかったので、送れた最初のものを返信にする
+    expect(s.sentMedia[0].parentId).toBe("m-p");
+    expect(r.firstMessageId).toBe(s.sentMedia[0].messageId);
+  });
+
+  it("取得の失敗も理由にして続ける。想定外のエラーは中身を出さない", async () => {
+    const s = setup();
+    const r = await sendParts(s.sender, "c", [
+      media("x.jpg", {
+        load: async () => {
+          throw new SendError("could not download the attachment from Discord");
+        },
+      }),
+      media("y.jpg", {
+        load: async () => {
+          throw new Error("secret detail");
+        },
+      }),
+    ]);
+    expect(r.failures).toEqual(["x.jpg: could not download the attachment from Discord", "y.jpg: unexpected error"]);
+    expect(r.firstMessageId).toBeUndefined();
   });
 });

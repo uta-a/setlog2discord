@@ -182,6 +182,38 @@
 - **トークンが不正なら接続時に HTTP 401**（実測。curl で Upgrade を送ると 401）。Node 組み込みの `WebSocket` では close 1006 しか見えず 401 と通信断を区別できない。ping も受け取れない。Bot では `ws` パッケージを使う（`unexpected-response` で状態コード、`ping` イベントで生存確認）
 - **未確認**：`messageUpdate` などの実際の形、それより長い接続の安定性
 
+### 4.10 画像・動画の送信（チャットの写真・動画）
+
+静的解析（2026-11-23、jadx-out-89 = 1.3-89）。**動的には未確認。** Bot の実装は [design.md 7.4](design.md)。
+
+- **流れ**：暗号化 → `POST {media API}/getUploadURL` → 返った `uploadUrl` に `PUT` → `POST chat/{conversationId}/message`（`fn1.d`→`vb1.E`→`dt2`→`fn1.a`）
+- **置き場所の発行**：`POST https://api-kr.newchatapi.com/media/getUploadURL`（リージョンが `ap-northeast-2` のとき。それ以外は `https://api.newchatapi.com/media/getUploadURL`。`yn3.b`）。本文 `{ contentType: "application/octet-stream", region, encrypted: true }`、認証はほかの API と同じ。応答は `{ uploadUrl（無ければ url）, region, key }`。`body` に JSON 文字列で包まれて返ることもある（`vb1.E` が両方を受ける）
+- **リージョン**：アプリは端末のロケールの国で決める。JP・KR・CN・TW などアジアは `ap-northeast-2`、それ以外は `us-east-1`（`yn3.a`）。受信した写真・動画の `media.region` も `ap-northeast-2`
+- **アップロード**：`PUT <uploadUrl>`、`Content-Type: application/octet-stream`、本体は暗号文（`dt2`）。setlog のヘッダーは付けない
+- **暗号**：ファイル全体を 1 回の ChaCha20-Poly1305 で封じる（`cq3.o`。64 KiB ずつ流すが形は `nonce(12) + 暗号文 + tag(16)` の 1 本）。鍵はランダムな content key そのもの。AAD は `cq3.m`：`mediaCipherV` が 1 なら `msg:enc:v1|conv:{convId}|msg:{msgId}|sender:{senderId}|type:{contentType}`、2 以上なら `msg:enc:v{N}|conv:media-v2|msg:shared-media|...`。撮影してチャットに送る経路（`h70`・`px5` → `ws3.r` → `mb1`）では `mediaCipherV` が既定の 1 で、鍵エントリの `v` も 1（`cq3.z` は `v` に `mediaCipherV` を入れる）。別の経路（`tn0` → `r20`）の値は追えていない。受信側（`lr3`）は、まず `max(1, mediaCipherV, keys[].v)`（`xq3.b`）で選んだ AAD を試し、続けて MIME の候補（`contentType`・`media.mimeType`・`application/octet-stream`・`video/quicktime`・`video/mp4`）ごとに v1 と v2 の AAD を両方試す。v1 で送れば開ける
+- **鍵のラップ**：テキストと同じ（`msg:enc:v1|conv:{convId}|msg:media-key|sender:{senderId}|type:application/octet-stream`）
+- **送信本文**（`fn1.a`）：
+  ```json
+  { "type": "snap", "conversationId": "<id>", "messageId": "<uuid>", "uuid": "<uuid>",
+    "refreshesStaleKeys": true, "parentId": "<返信なら>", "contentType": "image/jpeg",
+    "keys": [ ... ],
+    "media": { "path": "<getUploadURL の key>", "region": "<getUploadURL の region>", "mimeType": "image/jpeg",
+               "dimensions": { "width": 720, "height": 1280 }, "permission": "allow_saving" },
+    "mediaCipherV": 1 }
+  ```
+  `envelope` は無い。`dimensions` は幅と高さが正のときだけ。ほかに任意で `captions`・`captureUTCOffsetSeconds`・`captureCountryCode`・`durationMs`・`effect`・`isIntro`。`permission` の既定は `allow_saving`（`cr3`。ほかに `view_once` 系がある）。`type` はクリップのフィード（stack）なら `collection`、チャットなら `snap`（`px5.java:223`）
+- **形式**：アプリが拡張子を知っている MIME は `image/jpeg`・`image/png`・`image/webp`・`image/heic`・`video/mp4`・`video/quicktime`・`video/webm`（`i31`）
+- 応答：テキストと同じ `{ success, messageId }` の見込み
+
+### 4.11 リアクション
+
+静的解析（2026-11-23、jadx-out-89）。**動的には未確認。** Bot の実装は [design.md 7.5](design.md)。
+
+- **付ける**：`POST chat/message/addReaction`（`q74.d`）。本文 `{ conversationId, messageId, id: "<UUID>", text: "<絵文字>", factor?, scale?, rotation?, location? }`。`factor`・`scale` は 0 でなければ入れ、チャットからの既定値は 1（`rr3` の既定）。`rotation` は 0 なら、`location` は無いか (0,0) なら入れない（クリップの上に置くステッカーの位置・角度）
+- **外す**：`POST chat/message/removeReaction`（`q74.H`）。本文 `{ conversationId, messageId, text }`
+- **text**：絵文字の文字列そのもの（暗号化しない）。よく使う 5 個（😂 ❤️ 😭 ✨ 🥺。`qu0`）のほかに絵文字ピッカー（androidx emoji2）から選べる
+- アプリは応答の本文を使っていない（`q74.E`）。この 2 つのパスは HTTP クライアント（`zs2`・`ys2`）で再試行などの扱いを分けるための一覧（`ft2`）に入っている。ホストとヘッダーはほかの API と同じ。WebSocket では `newReaction`・`reactionRemoved` で届く（4.9）
+
 ## 5. 判定
 
 | 判定項目 | 結果 |

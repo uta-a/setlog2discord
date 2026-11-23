@@ -18,7 +18,8 @@ import { createIngest } from "./ingest";
 import { log } from "./log";
 import { createMemberDirectory } from "./members";
 import type { PostEmbed } from "./posting";
-import { SendError, createSender, resolveParent } from "./sender";
+import { SendError, createSender, resolveParent, sendParts, type OutgoingPart } from "./sender";
+import { createReactionSync, type ReactionSync } from "./reactions";
 import { createTextHandler } from "./texts";
 import { startSetlogSocket, type FatalReason, type SetlogSocket } from "./setlog-socket";
 import { openState } from "./state";
@@ -29,10 +30,12 @@ export type Receiver = {
   /** すぐつなぎ直す（/reconnect）。つながったら補完も走る。 */
   reconnect(): "reconnecting" | "not-connected" | "halted";
   /**
-   * Discord の発言を setlog に送る（B4）。replyToDiscordId（Discord で返信した先）があれば、
-   * 対応する setlog のメッセージへの返信として送る。送れなければ SendError を投げる。
+   * Discord の発言（テキストと画像・動画）を setlog に送る（B4・設計書7.4）。replyToDiscordId（Discord で返信した先）があれば、
+   * 対応する setlog のメッセージへの返信として送る。送れないものがあれば、残りを送ったうえで SendError を投げる。
    */
-  sendText(conversationId: string, text: string, discordMessageId: string, replyToDiscordId?: string): Promise<void>;
+  send(conversationId: string, parts: OutgoingPart[], discordMessageId: string, replyToDiscordId?: string): Promise<void>;
+  /** Discord で友達の投稿に付け外ししたリアクションを setlog に同期する（設計書7.5）。失敗は #bot-status に知らせる。 */
+  react: ReactionSync;
 };
 
 const FATAL_TEXT: Record<FatalReason, string> = {
@@ -79,6 +82,9 @@ export function startReceiver(
       return { kid: u.kid, publicKey: u.publicKey };
     },
     sendTextMessage: (p) => setlog.sendTextMessage(p),
+    getUploadUrl: () => setlog.getUploadUrl(),
+    uploadMedia: (url, cipher) => setlog.uploadMedia(url, cipher),
+    sendMediaMessage: (p) => setlog.sendMediaMessage(p),
   });
   const ingest = createIngest({
     store,
@@ -93,6 +99,13 @@ export function startReceiver(
 
   let socket: SetlogSocket | null = null;
   let halted = false;
+  const react = createReactionSync({
+    lookup: (id) => store.postedMessageOf(id),
+    addReaction: (p) => setlog.addReaction(p),
+    removeReaction: (p) => setlog.removeReaction(p),
+    notify,
+    isHalted: () => halted,
+  });
 
   function halt(reason: FatalReason): void {
     if (halted) return;
@@ -143,17 +156,26 @@ export function startReceiver(
   );
 
   return {
-    async sendText(conversationId, text, discordMessageId, replyToDiscordId) {
+    async send(conversationId, parts, discordMessageId, replyToDiscordId) {
       if (halted) throw new SendError("receiving is stopped (see #bot-status)");
       const parentId = resolveParent((id) => store.setlogMessageOf(id), replyToDiscordId, conversationId);
-      const { messageId } = await sender.send(conversationId, text, { parentId });
-      try {
-        store.recordSent({ discordMessageId, setlogMessageId: messageId, conversationId });
-      } catch (e) {
-        // 送信はできているので、記録の失敗では利用者に失敗を返さない
-        log.warn(`送信の記録に失敗: ${e instanceof Error ? e.message : String(e)}`);
+      const r = await sendParts(sender, conversationId, parts, { parentId });
+      if (r.firstMessageId) {
+        try {
+          // 表は Discord の発言 1 件につき 1 行なので、最初に送れたものを記録する（返信先に使う）
+          store.recordSent({ discordMessageId, setlogMessageId: r.firstMessageId, conversationId });
+        } catch (e) {
+          // 送信はできているので、記録の失敗では利用者に失敗を返さない
+          log.warn(`送信の記録に失敗: ${e instanceof Error ? e.message : String(e)}`);
+        }
       }
+      if (r.failures.length === 0) return;
+      if (r.failures.length === 1 && parts.length === 1) throw new SendError(r.failures[0].replace(/^[^:]*: /, ""));
+      // main.ts が「Not sent: 」を前に付けて返信する
+      const head = r.sent > 0 ? `only ${r.sent} of ${parts.length} parts were sent` : "";
+      throw new SendError(`${head}\n${r.failures.map((f) => `- ${f}`).join("\n")}`);
     },
+    react,
     reconnect() {
       if (halted || !socket) return "halted";
       return socket.reconnectNow() ? "reconnecting" : "not-connected";

@@ -284,6 +284,33 @@ export function encryptText(params: {
   return { envelope, keys };
 }
 
+/**
+ * 送信：画像・動画を暗号化し、CDN に置く暗号文と keys[] を作る（アプリの cq3.o / cq3.z の移植）。
+ *
+ * - 本体はファイル全体を 1 回の ChaCha20-Poly1305 で封じる：nonce(12) + ciphertext + tag(16)。鍵は content key そのもの
+ * - AAD は v1 の content info（conv:{convId}|msg:{msgId}|...|type:{mime}）。アプリが撮影してチャットに送る経路（h70・px5）では
+ *   mediaCipherV=1（xq3 の既定）で、鍵エントリも v=1 になる。受信側（lr3）は v1・v2 の AAD を MIME の候補ごとに両方試すので
+ *   どちらでも開けるが、送信本文の mediaCipherV と keys[].v も 1 にそろえる（client.sendMediaMessage）
+ * - mime は送信本文の contentType・media.mimeType と同じ値を渡す（AAD に入るので食い違うと開けない）
+ */
+export function encryptMedia(params: {
+  bytes: Buffer;
+  mime: string;
+  convId: string;
+  msgId: string;
+  senderId: string;
+  myPriv: KeyObject;
+  sender: { kid: string; publicKeyB64: string };
+  recipients: { uid: string; kid: string; publicKeyB64: string }[];
+}): { cipher: Buffer; keys: MessageKeyEntry[] } {
+  const contentKey = randomBytes(32);
+  const info = contentInfo(params.convId, params.msgId, params.senderId, params.mime, 1);
+  const cipher = aeadSeal(contentKey, params.bytes, Buffer.from(info, "utf-8"), randomBytes(12));
+  const senderFull = { ...params.sender, senderId: params.senderId };
+  const keys = params.recipients.map((r) => wrapContentKey(contentKey, r, params.myPriv, senderFull, params.convId));
+  return { cipher, keys };
+}
+
 export function recoverPrivateKeyFromBackup(
   backup: KeyBackup,
   passphrase: string,

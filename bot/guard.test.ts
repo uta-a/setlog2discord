@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { canUseCommand, channelProblems, guildsToLeave, sendTarget } from "./guard";
+import { canUseCommand, channelProblems, guildsToLeave, reactionEmoji, sendTarget } from "./guard";
 
 const G = "100000000000000001";
 const ok = { guildId: G, isText: true, canSend: true };
@@ -65,5 +65,28 @@ describe("sendTarget", () => {
     expect(sendTarget({ ...base, channelId: "500" }, cfg)).toBeUndefined();
     expect(sendTarget({ ...base, guildId: "200" }, cfg)).toBeUndefined();
     expect(sendTarget({ ...base, guildId: null }, cfg)).toBeUndefined();
+  });
+});
+
+describe("reactionEmoji", () => {
+  const groups = [
+    { clipsChannelId: "300", chatChannelId: "301" },
+    { clipsChannelId: "400", chatChannelId: "400" },
+  ];
+  const cfg = { guildId: G, ownerUserId: "100000000000000002", groups };
+  const base = { guildId: G, channelId: "300", userId: "100000000000000002", emojiId: null, emojiName: "👍🏽" };
+  it("設定した guild のクリップ・チャットのチャンネルで、自分が付けた Unicode の絵文字を返す", () => {
+    expect(reactionEmoji(base, cfg)).toBe("👍🏽");
+    expect(reactionEmoji({ ...base, channelId: "301" }, cfg)).toBe("👍🏽");
+    expect(reactionEmoji({ ...base, channelId: "400", emojiName: "❤️" }, cfg)).toBe("❤️");
+  });
+  it("他人のリアクション、他のチャンネル・guild、サーバーのカスタム絵文字は対象にしない", () => {
+    expect(reactionEmoji({ ...base, userId: "999" }, cfg)).toBeUndefined();
+    expect(reactionEmoji({ ...base, channelId: "500" }, cfg)).toBeUndefined();
+    expect(reactionEmoji({ ...base, guildId: "200" }, cfg)).toBeUndefined();
+    expect(reactionEmoji({ ...base, guildId: null }, cfg)).toBeUndefined();
+    expect(reactionEmoji({ ...base, emojiId: "123456789012345678", emojiName: "pepe" }, cfg)).toBeUndefined();
+    expect(reactionEmoji({ ...base, emojiName: null }, cfg)).toBeUndefined();
+    expect(reactionEmoji({ ...base, emojiName: "" }, cfg)).toBeUndefined();
   });
 });

@@ -24,16 +24,23 @@ import {
   MessageFlags,
   MessageReferenceType,
   type MessageCreateOptions,
+  type MessageReaction,
+  type PartialMessageReaction,
+  type PartialUser,
+  Partials,
   PermissionFlagsBits,
+  type User,
   type Webhook,
 } from "discord.js";
 import { RECONNECT_COMMAND } from "./commands";
 import { AttachmentTooLargeError, type PostEmbed } from "./posting";
 import { ConfigError, configuredChannels, loadConfig, type BotConfig } from "./config";
-import { canUseCommand, channelProblems, guildsToLeave, sendTarget, type ChannelInfo } from "./guard";
-import { SendError } from "./sender";
+import { canUseCommand, channelProblems, guildsToLeave, reactionEmoji, sendTarget, type ChannelInfo } from "./guard";
+import { downloadAttachment } from "./attachments";
+import { MAX_MEDIA_BYTES, SendError, type OutgoingPart } from "./sender";
 import { loadKeyring } from "./keys";
 import { log } from "./log";
+import type { ReactionAction } from "./reactions";
 import { startReceiver, type Receiver } from "./receiver";
 import { createNotifier } from "./status";
 import { createWebhookDirectory, discordChannelHooks, replyLine, webhookUsername, type WebhookDirectory } from "./webhooks";
@@ -179,9 +186,17 @@ async function main(): Promise<void> {
   const keyring = loadKeyring(process.env);
   log.info(`鍵を復元（${keyring.size} 件）`);
   let receiver: Receiver | null = null;
-  // 発言の本文を読むので MessageContent が要る（Developer Portal で有効にしておく。設計書6章）
+  // 発言の本文を読むので MessageContent が要る（Developer Portal で有効にしておく。設計書6章）。
+  // リアクションの同期（設計書7.5）には GuildMessageReactions が要る。再起動前の投稿はキャッシュに無いので、
+  // Partials を有効にして、キャッシュに無いメッセージへのリアクションも受け取る（使うのは ID と絵文字だけ）
   const client = new Client({
-    intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent],
+    intents: [
+      GatewayIntentBits.Guilds,
+      GatewayIntentBits.GuildMessages,
+      GatewayIntentBits.MessageContent,
+      GatewayIntentBits.GuildMessageReactions,
+    ],
+    partials: [Partials.Message, Partials.Reaction, Partials.User],
   });
   const notify = createNotifier(client, config.statusChannelId);
 
@@ -203,8 +218,8 @@ async function main(): Promise<void> {
       msg
         .reply({ content: `Not sent: ${reason}`, allowedMentions: { parse: [], repliedUser: false } })
         .catch((e) => log.warn(`失敗の返信に失敗: ${e instanceof Error ? e.message : String(e)}`));
-    if (msg.attachments.size > 0 || msg.stickers.size > 0) {
-      await fail("only text can be sent (attachments and stickers are not supported)");
+    if (msg.stickers.size > 0) {
+      await fail("stickers cannot be sent (text, images and videos can)");
       return;
     }
     if (!receiver) {
@@ -214,9 +229,25 @@ async function main(): Promise<void> {
     // Discord の返信は setlog の返信にする（転送は返信ではないので、参照を持っていても使わない）
     const replyTo =
       msg.reference?.type === MessageReferenceType.Default ? (msg.reference.messageId ?? undefined) : undefined;
+    // メンションは <@id> ではなく表示名にして送る。添付だけの発言ならテキストは送らない
+    const text = msg.cleanContent.trim();
+    const parts: OutgoingPart[] = [
+      ...(text || msg.attachments.size === 0 ? [{ kind: "text" as const, text: msg.cleanContent }] : []),
+      ...msg.attachments.map(
+        (a): OutgoingPart => ({
+          kind: "media",
+          name: a.name,
+          // Discord は「image/jpeg; charset=...」のように付けることがあるので、MIME の部分だけを見る
+          mimeType: a.contentType?.split(";")[0].trim() ?? null,
+          size: a.size,
+          width: a.width,
+          height: a.height,
+          load: () => downloadAttachment(a.url, { maxBytes: MAX_MEDIA_BYTES }),
+        }),
+      ),
+    ];
     try {
-      // メンションは <@id> ではなく表示名にして送る
-      await receiver.sendText(group.chatConversationId, msg.cleanContent, msg.id, replyTo);
+      await receiver.send(group.chatConversationId, parts, msg.id, replyTo);
     } catch (e) {
       if (e instanceof SendError) await fail(e.message);
       else {
@@ -225,6 +256,28 @@ async function main(): Promise<void> {
       }
     }
   });
+
+  // Discord → setlog のリアクション（設計書7.5）。友達の投稿への自分のリアクションだけを同期する
+  const onReaction = (action: ReactionAction) => async (reaction: MessageReaction | PartialMessageReaction, user: User | PartialUser) => {
+    const emoji = reactionEmoji(
+      {
+        guildId: reaction.message.guildId,
+        channelId: reaction.message.channelId,
+        userId: user.id,
+        emojiId: reaction.emoji.id,
+        emojiName: reaction.emoji.name,
+      },
+      config,
+    );
+    if (!emoji || !receiver) return;
+    try {
+      await receiver.react(reaction.message.id, emoji, action);
+    } catch (e) {
+      log.error(`リアクションの同期で想定外のエラー: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  };
+  client.on(Events.MessageReactionAdd, onReaction("add"));
+  client.on(Events.MessageReactionRemove, onReaction("remove"));
 
   client.on(Events.InteractionCreate, async (interaction) => {
     if (!interaction.isChatInputCommand() || interaction.commandName !== RECONNECT_COMMAND.name) return;
