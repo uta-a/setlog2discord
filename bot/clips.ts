@@ -12,7 +12,11 @@
  * 投稿はカード（Components V2 のコンテナ）：左の帯にその人の tintColor、中に送信者の名前 1 行（右にアイコン）と、
  * その下に mp4。日付・グループ名は出さない。
  *
- * mp4 はメモリの Buffer のまま渡し、ディスクには書かない。通知に本文やメンバー名は出さない。
+ * 音声（m4a）は Discord がその場で再生しないので、mp3 に変換してからファイルの部品で出す（2026-11-23 に追加。audio.ts）。
+ * 変換できないとき（ffmpeg が無いなど）は元のファイルのまま投稿し、#bot-status には起動中に 1 回だけ知らせる。
+ *
+ * mp4 はメモリの Buffer のまま渡し、ディスクには書かない（音声の変換だけは ffmpeg のために一時ファイルを使う）。
+ * 通知に本文やメンバー名は出さない。
  */
 import {
   ClipDecryptError,
@@ -21,6 +25,7 @@ import {
   decryptClip,
   type Keyring,
 } from "../lib/setlog/media";
+import { canConvertToMp3, type Mp3Converter } from "./audio";
 import { short, type HandlerResult, type IncomingMessage } from "./ingest";
 import { log } from "./log";
 import {
@@ -44,6 +49,8 @@ export type ClipDeps = AuthorDeps & {
   retryDelaysMs?: number[];
   /** プロフィールとアイコンを待つ上限。過ぎたら無しで投稿する。既定 5 秒。 */
   nameTimeoutMs?: number;
+  /** 音声を mp3 に変換する（audio.ts）。無ければ変換せずに投稿する。 */
+  toMp3?: Mp3Converter;
 };
 
 export type ClipHandler = ((m: IncomingMessage) => Promise<HandlerResult>) & {
@@ -67,6 +74,23 @@ export function createClipHandler(deps: ClipDeps): ClipHandler {
   const delays = deps.retryDelaysMs ?? [1000, 2000, 4000];
   const nameTimeoutMs = deps.nameTimeoutMs ?? 5000;
   const out = createOutcomes(deps.notify);
+  let convertFailureNotified = false;
+
+  /** 音声を mp3 にする。できなければ元のまま返す（投稿は止めない）。 */
+  async function playableAudio(data: Buffer, mimeType: string, where: string): Promise<{ data: Buffer; mimeType: string }> {
+    if (!deps.toMp3 || !canConvertToMp3(mimeType)) return { data, mimeType };
+    try {
+      return { data: await deps.toMp3(data, mimeType), mimeType: "audio/mpeg" };
+    } catch (e) {
+      const text = `Audio could not be converted to mp3 (${where}): ${e instanceof Error ? e.message : String(e)}`;
+      log.warn(text);
+      if (!convertFailureNotified) {
+        convertFailureNotified = true;
+        void deps.notify(`${text}. Posting the original file instead (it cannot be played in Discord). Further failures are only logged.`);
+      }
+      return { data, mimeType };
+    }
+  }
 
   async function fetchWithRetry(path: string): Promise<Buffer> {
     for (let i = 0; ; i++) {
@@ -105,6 +129,8 @@ export function createClipHandler(deps: ClipDeps): ClipHandler {
       throw e;
     }
 
+    const body = m.kind === "audio" ? await playableAudio(mp4, clip.media.mimeType, where) : { data: mp4, mimeType: clip.media.mimeType };
+
     // 名前とアイコンを動画の上に出す（時刻・グループ名は出さない。色はカードの帯に使う）
     const author = await resolveAuthor(deps, clip.senderId, clip.senderName, nameTimeoutMs);
     const caption = captionText(clip.media);
@@ -119,7 +145,7 @@ export function createClipHandler(deps: ClipDeps): ClipHandler {
           ...(m.kind === "audio" ? { asFile: true } : {}),
           color: author.color,
           avatar: author.avatar,
-          video: { name: fileName(clip.timestamp, id, clip.media.mimeType), data: mp4 },
+          video: { name: fileName(clip.timestamp, id, body.mimeType), data: body.data },
         },
         clipNonce(id),
       );

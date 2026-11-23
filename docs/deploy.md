@@ -30,7 +30,10 @@ setlog は同じアカウントの「最後に接続した 1 本」にしか新�
 [server] sudo apt-get install -y nodejs
 [server] sudo npm install -g pnpm@11           # Node 25 から pnpm（corepack）は同梱されない
 [server] node -v && pnpm -v
+[server] sudo apt-get install -y ffmpeg         # 音声を mp3 にするため（2026-11-23 に追加）
 ```
+
+ffmpeg が無くても Bot は動くが、音声は Discord で再生できない `.m4a` のまま投稿され、`#bot-status` に `Audio could not be converted to mp3` が出る。
 
 ## 2. コードを置く
 
@@ -141,6 +144,7 @@ Mac で動いている Bot を止める（`pnpm start` のターミナルで Ctr
 | 環境変数が「Too small」で起動しない | サービスが読む `.env` に値が入っていない。サーバーに `.env` があり、4 つの値が入っているか確かめる（`.env.local` は読まない） |
 | 通知に「setlog」としか出ない | Bot に投稿先チャンネルの「ウェブフックの管理」権限が無い（`#bot-status` に `Cannot use a webhook` が出る）。権限を足せば次の投稿から友達の名前になる（再起動は要らない） |
 | 新着が届かない | スマホで setlog アプリを開いていると Bot に届かない。5 分以内に戻るのを待つか、Discord で `/reconnect` |
+| 音声がファイルのリンクになり再生できない | `#bot-status` に `Audio could not be converted to mp3` が出ていれば、ffmpeg が入っていない（`ffmpeg is not installed`）か変換に失敗している。`sudo apt-get install -y ffmpeg` で入れれば、次の投稿から mp3 になる（再起動は要らない） |
 | Mac でも動かしてしまった | Mac の方を止める。Mac の状態ストアは使わない |
 | ログアウトすると止まる | `loginctl enable-linger`（sudo が要る場合あり） |
 

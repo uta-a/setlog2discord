@@ -53,12 +53,54 @@ function setup(over: Partial<ClipDeps> = {}, clipOver = {}, fetchFailures = 0) {
 }
 
 describe("クリップのハンドラ", () => {
-  it("音声は .m4a のファイルとして投稿する（動画の枠ではなくファイルの部品）", async () => {
-    const { handler, posts, clip } = setup();
+  it("音声は mp3 に変換して、ファイルの部品で投稿する（m4a は Discord がその場で再生しないため）", async () => {
+    const MP3 = Buffer.from("ID3-converted");
+    const calls: { audio: Buffer; mime: string }[] = [];
+    const { handler, posts, clip } = setup({
+      toMp3: async (audio, mime) => {
+        calls.push({ audio, mime });
+        return MP3;
+      },
+    });
     const audio = { ...clip, type: "snap", contentType: "audio/mp4", media: { ...clip.media, mimeType: "audio/mp4" } };
     await handler({ kind: "audio", group, message: audio as unknown as MessageHead });
-    expect(posts[0].video.name).toMatch(/\.m4a$/);
+    expect(calls).toEqual([{ audio: MP4, mime: "audio/mp4" }]);
+    expect(posts[0].video.name).toMatch(/\.mp3$/);
+    expect(posts[0].video.data).toEqual(MP3);
     expect(posts[0].asFile).toBe(true);
+  });
+
+  it("mp3 に変換できなければ元の .m4a で投稿し、#bot-status には 1 回だけ知らせる", async () => {
+    const { handler, posts, notes, clip } = setup({
+      toMp3: async () => {
+        throw new Error("ffmpeg is not installed");
+      },
+    });
+    const audio = { ...clip, type: "snap", contentType: "audio/mp4", media: { ...clip.media, mimeType: "audio/mp4" } };
+    const r1 = await handler({ kind: "audio", group, message: audio as unknown as MessageHead });
+    const r2 = await handler({ kind: "audio", group, message: audio as unknown as MessageHead });
+    expect(r1).toEqual({ result: "posted", discordMessageId: "discord-1" });
+    expect(r2).toEqual({ result: "posted", discordMessageId: "discord-1" });
+    expect(posts.map((p) => p.video.name)).toEqual([expect.stringMatching(/\.m4a$/), expect.stringMatching(/\.m4a$/)]);
+    expect(posts[0].video.data).toEqual(MP4);
+    expect(notes).toHaveLength(1);
+    expect(notes[0]).toMatch(/mp3/);
+    expect(notes[0]).toMatch(/ffmpeg is not installed/);
+  });
+
+  it("変換の対象外の音声（mp3 など）と動画は変換しない", async () => {
+    let calls = 0;
+    const { handler, run, posts, clip } = setup({
+      toMp3: async () => {
+        calls++;
+        return Buffer.from("x");
+      },
+    });
+    const mp3 = { ...clip, type: "snap", contentType: "audio/mpeg", media: { ...clip.media, mimeType: "audio/mpeg" } };
+    await handler({ kind: "audio", group, message: mp3 as unknown as MessageHead });
+    await run(clip);
+    expect(calls).toBe(0);
+    expect(posts.map((p) => p.video.name)).toEqual([expect.stringMatching(/\.mp3$/), expect.stringMatching(/\.mp4$/)]);
   });
 
   it("video/quicktime のクリップは .mov で投稿する", async () => {

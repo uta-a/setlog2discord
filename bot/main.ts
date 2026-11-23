@@ -113,7 +113,8 @@ function embedPoster(client: Client, hooks: WebhookDirectory<Webhook>): PostEmbe
         card.addTextDisplayComponents((t) => t.setContent(title));
       }
       if (post.asFile) {
-        // 音声は動画・画像の枠（MediaGallery）に入らないので、ファイルの部品で出す（Discord がその場で再生できる）
+        // 音声は動画・画像の枠（MediaGallery）に入らないので、ファイルの部品で出す。
+        // その場で再生できるのは mp3 など（m4a はファイルのリンクになる）なので、clips.ts で mp3 に変換してある
         card.addFileComponents((f) => f.setURL(`attachment://${post.video.name}`));
       } else {
         card.addMediaGalleryComponents((g) => g.addItems((i) => i.setURL(`attachment://${post.video.name}`)));
