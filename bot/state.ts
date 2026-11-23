@@ -42,6 +42,11 @@ export type StateStore = {
    * Bot が投稿したもの（posted）と、Discord から送った自分の発言の両方から引く。
    */
   setlogMessageOf(discordMessageId: string): { messageId: string; conversationId: string } | undefined;
+  /**
+   * Bot が投稿した友達のメッセージ（posted）だけを Discord のメッセージ ID で引く（リアクションの同期に使う。設計書7.5）。
+   * 自分が Discord から送った発言は引かない。
+   */
+  postedMessageOf(discordMessageId: string): { messageId: string; conversationId: string } | undefined;
   /** Discord から setlog に送った発言を記録する（同じ Discord の発言の 2 回目は無視）。 */
   recordSent(r: { discordMessageId: string; setlogMessageId: string; conversationId: string }): void;
   sentMessageIdOf(discordMessageId: string): string | undefined;
@@ -158,6 +163,10 @@ export function openState(path: string): StateStore {
         | { setlog_message_id: string; conversation_id: string }
         | undefined;
       return sent ? { messageId: sent.setlog_message_id, conversationId: sent.conversation_id } : undefined;
+    },
+    postedMessageOf(discordMessageId) {
+      const row = selectByDiscordId.get(discordMessageId) as { message_id: string; conversation_id: string } | undefined;
+      return row ? { messageId: row.message_id, conversationId: row.conversation_id } : undefined;
     },
     recordSent(r) {
       insertSent.run(r.discordMessageId, r.setlogMessageId, r.conversationId, Date.now());

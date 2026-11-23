@@ -18,6 +18,7 @@ import { log } from "./log";
 import { createMemberDirectory } from "./members";
 import type { PostEmbed } from "./posting";
 import { SendError, createSender, resolveParent, sendParts, type OutgoingPart } from "./sender";
+import { createReactionSync, type ReactionSync } from "./reactions";
 import { createTextHandler } from "./texts";
 import { startSetlogSocket, type FatalReason, type SetlogSocket } from "./setlog-socket";
 import { openState } from "./state";
@@ -32,6 +33,8 @@ export type Receiver = {
    * 対応する setlog のメッセージへの返信として送る。送れないものがあれば、残りを送ったうえで SendError を投げる。
    */
   send(conversationId: string, parts: OutgoingPart[], discordMessageId: string, replyToDiscordId?: string): Promise<void>;
+  /** Discord で友達の投稿に付け外ししたリアクションを setlog に同期する（設計書7.5）。失敗は #bot-status に知らせる。 */
+  react: ReactionSync;
 };
 
 const FATAL_TEXT: Record<FatalReason, string> = {
@@ -94,6 +97,13 @@ export function startReceiver(
 
   let socket: SetlogSocket | null = null;
   let halted = false;
+  const react = createReactionSync({
+    lookup: (id) => store.postedMessageOf(id),
+    addReaction: (p) => setlog.addReaction(p),
+    removeReaction: (p) => setlog.removeReaction(p),
+    notify,
+    isHalted: () => halted,
+  });
 
   function halt(reason: FatalReason): void {
     if (halted) return;
@@ -163,6 +173,7 @@ export function startReceiver(
       const head = r.sent > 0 ? `only ${r.sent} of ${parts.length} parts were sent` : "";
       throw new SendError(`${head}\n${r.failures.map((f) => `- ${f}`).join("\n")}`);
     },
+    react,
     reconnect() {
       if (halted || !socket) return "halted";
       return socket.reconnectNow() ? "reconnecting" : "not-connected";

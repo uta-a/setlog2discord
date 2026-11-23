@@ -57,3 +57,19 @@ export function sendTarget<G extends { chatChannelId: string }>(
   if (m.isBot || m.isWebhook || m.isSystem) return undefined;
   return config.groups.find((g) => g.chatChannelId === m.channelId);
 }
+
+/**
+ * Discord で付け外ししたリアクションを setlog に同期するなら、その絵文字を返す（設計書7.5。友達に見える書き込みなので厳しく絞る）。
+ * 対象は、設定した guild のクリップ・チャットのチャンネルで、設定した自分のユーザーが付け外ししたものだけ。
+ * setlog のリアクションは絵文字の文字列なので、サーバーのカスタム絵文字（ID を持つもの）は送らない。
+ * 対象のメッセージが友達の投稿かどうかは、呼び出し側が状態ストアで確かめる。
+ */
+export function reactionEmoji(
+  r: { guildId: string | null; channelId: string; userId: string; emojiId: string | null; emojiName: string | null },
+  config: { guildId: string; ownerUserId: string; groups: { clipsChannelId: string; chatChannelId: string }[] },
+): string | undefined {
+  if (r.guildId !== config.guildId || r.userId !== config.ownerUserId) return undefined;
+  if (!config.groups.some((g) => g.clipsChannelId === r.channelId || g.chatChannelId === r.channelId)) return undefined;
+  if (r.emojiId !== null || !r.emojiName) return undefined;
+  return r.emojiName;
+}

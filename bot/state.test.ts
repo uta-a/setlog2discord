@@ -99,4 +99,15 @@ describe("状態ストア", () => {
     expect(s.discordMessageIdOf("m3")).toBe("d3");
     s.close();
   });
+
+  it("リアクションの対象は Bot が投稿した友達のメッセージだけ（自分が送った発言・失敗したものは引かない）", () => {
+    const s = openState(":memory:");
+    s.recordProcessed({ messageId: "m1", conversationId: "c1", kind: "clip", timestamp: 1, result: "posted", discordMessageId: "d1" });
+    s.recordProcessed({ messageId: "m2", conversationId: "c1", kind: "text", timestamp: 2, result: "failed" });
+    s.recordSent({ discordMessageId: "d3", setlogMessageId: "m3", conversationId: "c2" });
+    expect(s.postedMessageOf("d1")).toEqual({ messageId: "m1", conversationId: "c1" });
+    expect(s.postedMessageOf("d3")).toBeUndefined();
+    expect(s.postedMessageOf("none")).toBeUndefined();
+    s.close();
+  });
 });
